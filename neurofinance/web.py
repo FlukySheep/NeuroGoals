@@ -12,6 +12,7 @@ import asyncio
 import hmac
 import logging
 import os
+from urllib.parse import parse_qsl, urlencode
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
@@ -136,11 +137,35 @@ async def _setup(request: Request) -> JSONResponse:
     })
 
 
-app = Starlette(
+async def not_found(request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        {"error": "not found", "path": request.scope.get("path"), "root_path": request.scope.get("root_path")},
+        status_code=404,
+    )
+
+
+_routes = Starlette(
     routes=[
         Route("/", health),
         Route("/api/telegram", telegram, methods=["POST"]),
         Route("/api/cron", cron, methods=["GET", "POST"]),
         Route("/api/setup", setup, methods=["GET"]),
-    ]
+    ],
+    exception_handlers={404: not_found},
 )
+
+
+async def app(scope, receive, send):
+    """vercel.json rewrites every URL to /api/index?__path=<original path>.
+
+    Route on that parameter so routing doesn't depend on which path the
+    platform hands to the function.
+    """
+    if scope["type"] == "http":
+        query = parse_qsl(scope.get("query_string", b"").decode(), keep_blank_values=True)
+        original = next((v for k, v in query if k == "__path"), None)
+        if original is not None:
+            path = "/" + original.lstrip("/")
+            rest = urlencode([(k, v) for k, v in query if k != "__path"])
+            scope = dict(scope, path=path, raw_path=path.encode(), root_path="", query_string=rest.encode())
+    await _routes(scope, receive, send)

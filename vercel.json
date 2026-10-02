@@ -6,6 +6,6 @@
       "includeFiles": "{neurofinance/**,media/**}"
     }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
+  "rewrites": [{ "source": "/:path*", "destination": "/api/index?__path=/:path*" }],
   "crons": [{ "path": "/api/cron", "schedule": "0 * * * *" }]
 }
