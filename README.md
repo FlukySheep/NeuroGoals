@@ -1,7 +1,7 @@
 # НейроФинансы — Telegram bot (@neurogoals_bot)
 
 Sales/enrollment bot for Zoe Zaraiskaya's 4-day program «НейроФинансы».
-Python 3.11+, [aiogram 3](https://docs.aiogram.dev), SQLite.
+Python 3.11+, [aiogram 3](https://docs.aiogram.dev), Postgres on Vercel (SQLite locally).
 
 ## Deploy on Vercel
 
