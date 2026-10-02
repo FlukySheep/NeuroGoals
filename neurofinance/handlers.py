@@ -95,7 +95,7 @@ COMMAND_ROUTES = {
 }
 
 
-# Menu buttons work from any state (e.g. the user changes their mind mid-question).
+# Old reply-keyboard labels (still on some clients) work from any state (e.g. the user changes their mind mid-question).
 @router.message(F.text.in_(MENU_ROUTES), StateFilter("*"))
 async def menu_button(message: Message, bot: Bot, db: Database, config: Config, state: FSMContext) -> None:
     await state.clear()
@@ -239,6 +239,6 @@ async def cmd_myid(message: Message) -> None:
 @router.message()
 async def fallback(message: Message, bot: Bot, db: Database, config: Config) -> None:
     if message.text and message.text.startswith("/"):
-        await message.answer("Не знаю такой команды. Воспользуйтесь меню внизу 👇", reply_markup=kb.main_menu())
+        await message.answer("Не знаю такой команды. Нажмите кнопку меню слева от поля ввода.")
         return
     await forward_question(message, bot, db, config)

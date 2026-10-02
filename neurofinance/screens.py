@@ -10,12 +10,12 @@ from .db import Database
 
 
 async def step1(bot: Bot, chat_id: int, config: Config, db: Database) -> None:
-    # The reply-keyboard menu rides on the first message; the inline buttons on the second.
+    # The first message also clears the old bottom keyboard; inline buttons ride on the second.
     sent = await media.send_photo(
-        bot, chat_id, "portrait", config, db, caption=t.STEP1_CAPTION, reply_markup=kb.main_menu()
+        bot, chat_id, "portrait", config, db, caption=t.STEP1_CAPTION, reply_markup=kb.remove_keyboard
     )
     if sent is None:
-        await bot.send_message(chat_id, t.STEP1_CAPTION, reply_markup=kb.main_menu())
+        await bot.send_message(chat_id, t.STEP1_CAPTION, reply_markup=kb.remove_keyboard)
     await bot.send_message(chat_id, t.STEP1, reply_markup=kb.step1)
 
 

@@ -1,8 +1,7 @@
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 
 from . import texts as t
@@ -23,12 +22,9 @@ def _kb(*rows: list[tuple[str, str]]) -> InlineKeyboardMarkup:
     )
 
 
-def main_menu() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=label) for label in row] for row in t.MENU_LAYOUT],
-        resize_keyboard=True,
-        is_persistent=True,
-    )
+# The menu lives in Telegram's "Menu" button (bot commands, see texts.COMMANDS),
+# which stays collapsed until tapped. This removes the old always-visible keyboard.
+remove_keyboard = ReplyKeyboardRemove()
 
 
 step1 = _kb(

@@ -75,8 +75,8 @@ Payment methods: € — PayPal, UBS, TWINT, Revolut, crypto; ₽ — Т-Бан�
 Every method screen also has «Связаться с менеджером», which notifies the manager chat
 and gives the user a link to @ZoeRai.
 
-The persistent menu is a reply keyboard (plus the same items as `/commands`
-in Telegram's Menu button).
+The menu (что такое, программа, формат, стоимость, обо мне, FAQ, записаться, вопрос) is
+Telegram's **Menu** button next to the input field: hidden until tapped.
 
 ## Automatic messages
 

@@ -509,7 +509,7 @@ CLOSING = (
 )
 
 # ---------------------------------------------------------------------------
-# Persistent menu (reply keyboard)
+# Menu (shown in Telegram's "Menu" button as bot commands)
 # ---------------------------------------------------------------------------
 
 MENU_ABOUT = "Что такое «НейроФинансы»"
@@ -521,15 +521,8 @@ MENU_FAQ = "Частые вопросы"
 MENU_SIGNUP = "Записаться"
 MENU_ASK = "Задать вопрос"
 
-MENU_LAYOUT = [
-    [MENU_ABOUT],
-    [MENU_PROGRAM, MENU_FORMAT],
-    [MENU_PRICE, MENU_ZOE],
-    [MENU_FAQ, MENU_ASK],
-    [MENU_SIGNUP],
-]
 
-# Slash commands for the Telegram "Menu" button (mirror the reply keyboard).
+# Items of the Telegram "Menu" button.
 COMMANDS = [
     ("start", "Начать сначала"),
     ("about", "Что такое «НейроФинансы»"),
