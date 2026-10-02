@@ -1,9 +1,9 @@
-"""Media for steps 1, 5 and 6.
+"""Media slots: portrait (step 1), program card (step 5), video note (step 6).
 
-Lookup order for each slot (portrait / program / video_note):
+Lookup order for each slot:
 1. a file the manager sent to the bot (stored as a Telegram file_id in the database);
 2. MEDIA_* setting: a Telegram file_id, or a local file path (uploaded once, then cached).
-Missing media is skipped.
+Missing media is skipped. Photos attached to a post in the admin panel take precedence.
 """
 
 import logging
@@ -20,46 +20,39 @@ log = logging.getLogger(__name__)
 SLOTS = ("portrait", "program", "video_note")
 
 
-async def _source(slot: str, config: Config, db: Database) -> tuple[str | FSInputFile | None, str | None]:
-    """Return (what to send, cache key to store the resulting file_id under)."""
+async def photo_source(slot: str, config: Config, db: Database) -> str | FSInputFile | None:
     uploaded = await db.kv_get(f"media:{slot}")
     if uploaded:
-        return uploaded, None
+        return uploaded
     value = config.media.get(slot, "")
     if not value:
-        return None, None
+        return None
     cached = await db.kv_get(f"upload:{value}")
     if cached:
-        return cached, None
+        return cached
     if os.path.isfile(value):
-        return FSInputFile(value), f"upload:{value}"
+        return FSInputFile(value)
     if "/" in value or "." in value:
-        return None, None  # a path that does not exist (yet)
-    return value, None  # Telegram file_id
+        return None  # a path that does not exist (yet)
+    return value  # Telegram file_id
 
 
-async def _send(bot: Bot, chat_id: int, slot: str, config: Config, db: Database, **kwargs) -> Message | None:
-    source, cache_key = await _source(slot, config, db)
-    if source is None:
-        return None
-    try:
-        if slot == "video_note":
-            msg = await bot.send_video_note(chat_id, source)
-        else:
-            msg = await bot.send_photo(chat_id, source, **kwargs)
-    except Exception:
-        log.exception("Failed to send media %s", slot)
-        return None
-    if cache_key:
-        file = msg.photo[-1] if msg.photo else msg.video_note
-        if file:
-            await db.kv_set(cache_key, file.file_id)
-    return msg
-
-
-async def send_photo(bot: Bot, chat_id: int, slot: str, config: Config, db: Database, **kwargs) -> Message | None:
-    return await _send(bot, chat_id, slot, config, db, **kwargs)
+async def remember_upload(slot: str, config: Config, db: Database, msg: Message) -> None:
+    """After a local file was uploaded, cache its file_id so it is uploaded only once."""
+    file = msg.photo[-1] if msg.photo else msg.video_note
+    if file:
+        await db.kv_set(f"upload:{config.media.get(slot, '')}", file.file_id)
 
 
 async def send_video_note(bot: Bot, chat_id: int, config: Config, db: Database) -> Message | None:
-    return await _send(bot, chat_id, "video_note", config, db)
+    source = await photo_source("video_note", config, db)
+    if source is None:
+        return None
+    try:
+        msg = await bot.send_video_note(chat_id, source)
+    except Exception:
+        log.exception("Failed to send video note")
+        return None
+    if not isinstance(source, str):
+        await remember_upload("video_note", config, db, msg)
+    return msg

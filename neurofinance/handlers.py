@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
+from . import content
 from . import keyboards as kb
 from . import screens
 from . import texts as t
@@ -30,36 +31,38 @@ class Form(StatesGroup):
 
 async def open_screen(name: str, bot: Bot, chat_id: int, db: Database, config: Config, state: FSMContext) -> None:
     if name == "ask":
-        await start_question(bot, chat_id, state)
+        await start_question(bot, chat_id, db, state)
         return
-    simple = {
+    screen = {
+        "step1": screens.step1,
         "step2": screens.step2,
         "step3": screens.step3,
         "step4": screens.step4,
+        "step5": screens.step5,
+        "step6": screens.step6,
         "doubt": screens.doubt,
         "step7": screens.step7,
         "choose": screens.choose_group,
         "price": screens.price,
+        "step8": screens.step8,
         "step9": screens.step9,
+        "methods": screens.payment_methods,
         "faq": screens.faq,
-    }
-    if name in simple:
-        await simple[name](bot, chat_id)
-    elif name == "step1":
-        await screens.step1(bot, chat_id, config, db)
-    elif name == "step5":
-        await screens.step5(bot, chat_id, config, db)
-    elif name == "step6":
-        await screens.step6(bot, chat_id, config, db)
-    elif name == "step8":
-        await screens.step8(bot, chat_id, db)
-    elif name == "methods":
-        await screens.payment_methods(bot, chat_id, db)
+    }.get(name)
+    if screen:
+        await screen(bot, chat_id, db, config)
 
 
-async def start_question(bot: Bot, chat_id: int, state: FSMContext) -> None:
+async def start_question(bot: Bot, chat_id: int, db: Database, state: FSMContext) -> None:
     await state.set_state(Form.question)
-    await bot.send_message(chat_id, t.ASK_QUESTION, reply_markup=kb.cancel_input)
+    await content.send(bot, chat_id, db, "ask_question", kb.cancel_input)
+
+
+async def tell_admin_unavailable(message: Message, bot: Bot, db: Database, config: Config) -> None:
+    await content.send(
+        bot, message.chat.id, db, "admin_unavailable", kb.manager_link(config.manager_url),
+        manager=config.manager_username,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +73,7 @@ async def start_question(bot: Bot, chat_id: int, state: FSMContext) -> None:
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot, db: Database, config: Config, state: FSMContext) -> None:
     await state.clear()
-    await screens.step1(bot, message.chat.id, config, db)
+    await screens.step1(bot, message.chat.id, db, config)
 
 
 MENU_ROUTES = {
@@ -122,31 +125,31 @@ async def cb_go(call: CallbackQuery, bot: Bot, db: Database, config: Config, sta
 
 
 @router.callback_query(F.data.startswith("br:"))
-async def cb_branch(call: CallbackQuery, bot: Bot) -> None:
+async def cb_branch(call: CallbackQuery, bot: Bot, db: Database) -> None:
     await call.answer()
     key = call.data[3:]
     if key in t.BRANCHES:
-        await screens.branch(bot, call.message.chat.id, key)
+        await screens.branch(bot, call.message.chat.id, db, key)
 
 
 @router.callback_query(F.data.startswith("grp:"))
-async def cb_group(call: CallbackQuery, bot: Bot, db: Database) -> None:
+async def cb_group(call: CallbackQuery, bot: Bot, db: Database, config: Config) -> None:
     key = call.data[4:]
     if key not in t.GROUPS:
         await call.answer()
         return
     await call.answer(t.GROUPS[key].title)
     await db.set_group(call.from_user.id, key)
-    await screens.step8(bot, call.message.chat.id, db)
+    await screens.step8(bot, call.message.chat.id, db, config)
 
 
 @router.callback_query(F.data.startswith("cur:"))
-async def cb_currency(call: CallbackQuery, bot: Bot, db: Database) -> None:
+async def cb_currency(call: CallbackQuery, bot: Bot, db: Database, config: Config) -> None:
     await call.answer()
     currency = call.data[4:]
     if currency in t.CURRENCY_AMOUNT:
         await db.set_currency(call.from_user.id, currency)
-        await screens.step9(bot, call.message.chat.id)
+        await screens.step9(bot, call.message.chat.id, db, config)
 
 
 @router.callback_query(F.data.startswith("pay:"))
@@ -158,11 +161,11 @@ async def cb_method(call: CallbackQuery, bot: Bot, db: Database) -> None:
 
 
 @router.callback_query(F.data.startswith("faq:"))
-async def cb_faq(call: CallbackQuery, bot: Bot) -> None:
+async def cb_faq(call: CallbackQuery, bot: Bot, db: Database, config: Config) -> None:
     await call.answer()
     index = int(call.data[4:])
     if 0 <= index < len(t.FAQ):
-        await screens.faq_answer(bot, call.message.chat.id, index)
+        await screens.faq_answer(bot, call.message.chat.id, db, config, index)
 
 
 # ---------------------------------------------------------------------------
@@ -175,17 +178,17 @@ async def cb_manager(call: CallbackQuery, bot: Bot, db: Database, config: Config
     await call.answer()
     await state.clear()
     await to_admin(bot, config, db, call.from_user.id, "📞 Просит связаться: ни один способ оплаты не подошёл")
-    await call.message.answer(
-        t.CONTACT_MANAGER_USER.format(manager=config.manager_username),
-        reply_markup=kb.manager_link(config.manager_url),
+    await content.send(
+        bot, call.message.chat.id, db, "contact_manager", kb.manager_link(config.manager_url),
+        manager=config.manager_username,
     )
 
 
 @router.callback_query(F.data == "paid")
-async def cb_paid(call: CallbackQuery, state: FSMContext) -> None:
+async def cb_paid(call: CallbackQuery, bot: Bot, db: Database, state: FSMContext) -> None:
     await call.answer()
     await state.set_state(Form.receipt)
-    await call.message.answer(t.ASK_RECEIPT, reply_markup=kb.cancel_input)
+    await content.send(bot, call.message.chat.id, db, "ask_receipt", kb.cancel_input)
 
 
 @router.callback_query(F.data == "cancel", StateFilter("*"))
@@ -206,12 +209,9 @@ async def on_receipt(message: Message, bot: Bot, db: Database, config: Config, s
         original=message, reply_markup=kb.admin_payment(message.from_user.id),
     )
     if delivered:
-        await message.answer(t.RECEIPT_RECEIVED)
+        await content.send(bot, message.chat.id, db, "receipt_received")
     else:
-        await message.answer(
-            t.ADMIN_UNAVAILABLE.format(manager=config.manager_username),
-            reply_markup=kb.manager_link(config.manager_url),
-        )
+        await tell_admin_unavailable(message, bot, db, config)
 
 
 @router.message(Form.question)
@@ -222,12 +222,9 @@ async def on_question(message: Message, bot: Bot, db: Database, config: Config, 
 
 async def forward_question(message: Message, bot: Bot, db: Database, config: Config) -> None:
     if await to_admin(bot, config, db, message.from_user.id, "❓ Вопрос", original=message):
-        await message.answer(t.QUESTION_SENT)
+        await content.send(bot, message.chat.id, db, "question_sent")
     else:
-        await message.answer(
-            t.ADMIN_UNAVAILABLE.format(manager=config.manager_username),
-            reply_markup=kb.manager_link(config.manager_url),
-        )
+        await tell_admin_unavailable(message, bot, db, config)
 
 
 @router.message(Command("myid"))

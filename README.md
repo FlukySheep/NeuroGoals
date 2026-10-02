@@ -21,6 +21,7 @@ Data lives in Postgres (Neon). An hourly Vercel Cron sends the reminders.
    | `CRON_SECRET` | another random string |
    | `ADMIN_CHAT_ID` | manager's chat id (step 6 below) |
    | `GROUP_LINK_WEEKEND`, `GROUP_LINK_WEEKDAY` | invite links to the participant chats |
+   | `ADMIN_PASSWORD` | password for the admin panel at `/admin` |
 
    Optional: `ADMIN_IDS`, `MANAGER_USERNAME`, `REMINDER_DELAY_HOURS`, `PUBLIC_URL` (see `.env.example`).
 4. **Redeploy** (*Deployments → ⋯ → Redeploy*). Env changes only apply after a redeploy.
@@ -56,11 +57,22 @@ Everything for the team arrives in the `ADMIN_CHAT_ID` chat: questions,
 «связаться с менеджером» requests and payment receipts. **Reply** to any of those messages
 and the reply is delivered to the user.
 
-## Storyline
+## Admin panel: editing messages
 
-All texts live in [`neurofinance/texts.py`](neurofinance/texts.py) (steps 1–10, branches,
-FAQ, reminder, closing message, payment details). Media files go into `media/`
-or are uploaded by the manager directly in the bot (see step 7 above); missing media is skipped.
+`https://<your-domain>/admin` (password: `ADMIN_PASSWORD`) lists every message the bot sends,
+grouped by step. Each one opens in a visual editor (bold, italic, underline, strikethrough,
+links, quotes, code) and can get a picture. Changes apply to the bot immediately.
+
+- **Variables** such as `{group}`, `{dates}`, `{amount}` are filled in when the message is sent;
+  the editor shows the ones each message supports as buttons.
+- **Pictures** are uploaded to Telegram (sent to the admin chat and deleted at once), so no
+  file storage is needed. A text over 1024 characters is sent as a separate message under the picture.
+- **«Сохранить и прислать мне»** sends a preview to `ADMIN_CHAT_ID`.
+- **«Сбросить»** restores the original text and removes the picture.
+- FAQ answers that are empty are hidden in the bot; filling one in makes the question appear.
+
+Default texts live in [`neurofinance/texts.py`](neurofinance/texts.py); the catalogue of editable
+messages is [`neurofinance/content.py`](neurofinance/content.py). Button labels are not editable yet.
 
 ```
 /start → Step 1 → (Подойдёт ли мне) Step 2 → branch → Step 3 → Step 4 → Step 5 (program)

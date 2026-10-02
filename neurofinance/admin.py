@@ -8,6 +8,7 @@ from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import Command, CommandObject, Filter
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from . import content
 from . import keyboards as kb
 from . import screens
 from . import texts as t
@@ -68,7 +69,7 @@ async def cb_reject(call: CallbackQuery, bot: Bot, db: Database, config: Config)
     await call.answer()
     await call.message.edit_reply_markup(reply_markup=None)
     try:
-        await bot.send_message(user_id, t.PAYMENT_REJECTED, reply_markup=kb.manager_link(config.manager_url))
+        await content.send(bot, user_id, db, "payment_rejected", kb.manager_link(config.manager_url))
     except TelegramForbiddenError:
         await db.mark_blocked(user_id)
     await call.message.reply(f"❌ Отмечено: платёж не найден ({call.from_user.full_name})")
@@ -107,7 +108,7 @@ async def cmd_closing(message: Message, db: Database) -> None:
     await message.answer(
         f"Отправить сообщение о закрытии записи {count} пользователям "
         "(все, кто не оплатил и ещё не получал это сообщение)?\n\n"
-        f"Предпросмотр:\n\n{t.CLOSING}",
+        "Текст сообщения — в админке, раздел «Рассылки».",
         reply_markup=kb.closing_confirm,
     )
 
@@ -120,12 +121,13 @@ async def cb_closing(call: CallbackQuery, bot: Bot, db: Database) -> None:
         return
     await call.answer("Отправляю…")
     sent = failed = 0
+    post = await content.render(db, "closing")
     for user_id in await db.closing_recipients():
         # Claim first: a retried webhook or a double click never sends twice.
         if not await db.claim_closing(user_id):
             continue
         try:
-            await bot.send_message(user_id, t.CLOSING, reply_markup=kb.closing)
+            await content.send_rendered(bot, user_id, post, kb.closing)
             sent += 1
         except TelegramForbiddenError:
             await db.mark_blocked(user_id)

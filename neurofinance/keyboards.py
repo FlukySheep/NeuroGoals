@@ -1,7 +1,6 @@
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ReplyKeyboardRemove,
 )
 
 from . import texts as t
@@ -22,9 +21,6 @@ def _kb(*rows: list[tuple[str, str]]) -> InlineKeyboardMarkup:
     )
 
 
-# The menu lives in Telegram's "Menu" button (bot commands, see texts.COMMANDS),
-# which stays collapsed until tapped. This removes the old always-visible keyboard.
-remove_keyboard = ReplyKeyboardRemove()
 
 
 step1 = _kb(
@@ -98,8 +94,8 @@ def step10(link: str | None) -> InlineKeyboardMarkup | None:
     return _kb([("ПЕРЕЙТИ В ГРУППУ", link)]) if link else None
 
 
-def faq_list() -> InlineKeyboardMarkup:
-    return _kb(*[[(q, f"faq:{i}")] for i, (q, a) in enumerate(t.FAQ) if a])
+def faq_list(visible: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    return _kb(*[[(q, f"faq:{i}")] for i, q in visible])
 
 
 faq_answer = _kb(

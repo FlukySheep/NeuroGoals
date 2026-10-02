@@ -11,7 +11,7 @@ from aiogram.exceptions import TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BotCommand, CallbackQuery, TelegramObject
 
-from . import admin, handlers
+from . import admin, content, handlers
 from . import keyboards as kb
 from . import texts as t
 from .config import Config
@@ -63,9 +63,11 @@ def make_dispatcher(db: Database, config: Config) -> Dispatcher:
 
 async def send_reminders(bot: Bot, db: Database, config: Config) -> int:
     sent = 0
-    for user_id in await db.claim_reminders(config.reminder_delay_hours):
+    user_ids = await db.claim_reminders(config.reminder_delay_hours)
+    post = await content.render(db, "reminder") if user_ids else None
+    for user_id in user_ids:
         try:
-            await bot.send_message(user_id, t.REMINDER, reply_markup=kb.reminder)
+            await content.send_rendered(bot, user_id, post, kb.reminder)
             sent += 1
         except TelegramForbiddenError:
             await db.mark_blocked(user_id)

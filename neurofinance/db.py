@@ -35,6 +35,12 @@ SCHEMA = [
         k TEXT PRIMARY KEY,
         v TEXT
     )""",
+    """CREATE TABLE IF NOT EXISTS content (
+        key        TEXT PRIMARY KEY,
+        html       TEXT,
+        photo      TEXT,
+        updated_at DOUBLE PRECISION
+    )""",
     """CREATE TABLE IF NOT EXISTS fsm (
         k     TEXT PRIMARY KEY,
         state TEXT,
@@ -219,6 +225,25 @@ class Database:
         await self.execute(
             "INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", key, value
         )
+
+    # -- editable messages (admin panel) -------------------------------------
+
+    async def content_get(self, key: str) -> dict | None:
+        return await self.fetchone("SELECT * FROM content WHERE key=?", key)
+
+    async def content_all(self) -> list[dict]:
+        return await self.fetch("SELECT * FROM content")
+
+    async def content_set(self, key: str, html: str | None, photo: str | None) -> None:
+        await self.execute(
+            "INSERT INTO content (key, html, photo, updated_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET html=excluded.html, photo=excluded.photo, "
+            "updated_at=excluded.updated_at",
+            key, html, photo, time.time(),
+        )
+
+    async def content_delete(self, key: str) -> None:
+        await self.execute("DELETE FROM content WHERE key=?", key)
 
     # -- FSM state ----------------------------------------------------------
 

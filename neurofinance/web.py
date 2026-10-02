@@ -21,6 +21,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
+from . import panel
 from .app import make_bot, make_dispatcher, send_reminders, setup_profile
 from .config import Config, load_config
 from .db import Database
@@ -69,6 +70,7 @@ async def health(request: Request) -> JSONResponse:
         "WEBHOOK_SECRET": bool(env.get("WEBHOOK_SECRET")),
         "CRON_SECRET": bool(env.get("CRON_SECRET")),
         "ADMIN_CHAT_ID": bool(env.get("ADMIN_CHAT_ID")),
+        "ADMIN_PASSWORD": bool(env.get("ADMIN_PASSWORD")),
         "database": "postgres" if db_url.startswith("postgres") else "MISSING (add Neon in Storage)",
     })
 
@@ -144,12 +146,25 @@ async def not_found(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+def _panel_config() -> Config:
+    _init()
+    return S.config
+
+
+def _panel_db() -> Database:
+    _init()
+    return S.db
+
+
+panel.deps.update(config=_panel_config, db=_panel_db, bot=lambda: (_init(), _bot())[1])
+
 _routes = Starlette(
     routes=[
         Route("/", health),
         Route("/api/telegram", telegram, methods=["POST"]),
         Route("/api/cron", cron, methods=["GET", "POST"]),
         Route("/api/setup", setup, methods=["GET"]),
+        *panel.routes,
     ],
     exception_handlers={404: not_found},
 )
