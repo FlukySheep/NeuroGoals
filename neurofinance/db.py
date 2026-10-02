@@ -9,6 +9,7 @@ import json
 import re
 import time
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # status: new -> chose_group -> pending (receipt sent) -> paid
 SCHEMA = [
@@ -42,6 +43,17 @@ SCHEMA = [
 ]
 
 
+# libpq-only URL options that asyncpg would forward to the server as settings (and fail).
+_UNSUPPORTED_PARAMS = {"channel_binding"}
+
+
+def _clean_pg_url(url: str) -> str:
+    """Neon URLs carry ?channel_binding=require, which asyncpg does not understand."""
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k not in _UNSUPPORTED_PARAMS]
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
 def _to_pg(sql: str) -> str:
     counter = iter(range(1, 1000))
     return re.sub(r"\?", lambda _: f"${next(counter)}", sql)
@@ -49,8 +61,8 @@ def _to_pg(sql: str) -> str:
 
 class Database:
     def __init__(self, url: str):
-        self.url = url
         self.is_pg = url.startswith(("postgres://", "postgresql://"))
+        self.url = _clean_pg_url(url) if self.is_pg else url
         self._handle: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
 

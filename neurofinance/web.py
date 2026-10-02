@@ -11,6 +11,7 @@ Routes:
 import asyncio
 import hmac
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
@@ -57,8 +58,18 @@ def _same(a: str, b: str) -> bool:
     return bool(a) and bool(b) and hmac.compare_digest(a.encode(), b.encode())
 
 
-async def health(request: Request) -> PlainTextResponse:
-    return PlainTextResponse("НейроФинансы bot is running")
+async def health(request: Request) -> JSONResponse:
+    # Only reports whether settings are present, never their values.
+    env = os.environ
+    db_url = env.get("DATABASE_URL") or env.get("POSTGRES_URL") or ""
+    return JSONResponse({
+        "bot": "НейроФинансы",
+        "BOT_TOKEN": bool(env.get("BOT_TOKEN")),
+        "WEBHOOK_SECRET": bool(env.get("WEBHOOK_SECRET")),
+        "CRON_SECRET": bool(env.get("CRON_SECRET")),
+        "ADMIN_CHAT_ID": bool(env.get("ADMIN_CHAT_ID")),
+        "database": "postgres" if db_url.startswith("postgres") else "MISSING (add Neon in Storage)",
+    })
 
 
 async def telegram(request: Request) -> JSONResponse:
@@ -88,9 +99,20 @@ async def cron(request: Request) -> JSONResponse:
 
 
 async def setup(request: Request) -> JSONResponse:
-    _init()
+    try:
+        _init()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"configuration: {exc}"}, status_code=500)
     if not _same(request.query_params.get("key", ""), S.config.webhook_secret):
         return JSONResponse({"error": "forbidden: pass ?key=<WEBHOOK_SECRET>"}, status_code=403)
+    try:
+        return await _setup(request)
+    except Exception as exc:
+        log.exception("Setup failed")
+        return JSONResponse({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status_code=500)
+
+
+async def _setup(request: Request) -> JSONResponse:
     host = request.headers.get("x-forwarded-host") or request.url.hostname
     base = S.config.public_url or f"https://{host}"
     url = f"{base}/api/telegram"
