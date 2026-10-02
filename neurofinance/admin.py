@@ -94,18 +94,19 @@ async def cmd_stats(message: Message, db: Database) -> None:
     stats = await db.stats()
     labels = {"new": "Смотрят", "chose_group": "Выбрали группу", "pending": "Ждут проверки оплаты", "paid": "Оплатили"}
     lines = []
-    for key, n in sorted(stats.items()):
-        status, group = key.split(":")
-        group_title = t.GROUPS[group].title if group in t.GROUPS else "без группы"
-        lines.append(f"{labels.get(status, status)} · {group_title}: <b>{n}</b>")
+    for row in sorted(stats, key=lambda r: (r["status"], r["group_key"] or "")):
+        group = t.GROUPS.get(row["group_key"] or "")
+        group_title = group.title if group else "без группы"
+        lines.append(f"{labels.get(row['status'], row['status'])} · {group_title}: <b>{row['n']}</b>")
     await message.answer("<b>Статистика</b>\n\n" + ("\n".join(lines) or "Пока пусто"))
 
 
 @router.message(Command("closing"), IsAdmin())
 async def cmd_closing(message: Message, db: Database) -> None:
-    count = len(await db.unpaid_users())
+    count = len(await db.closing_recipients())
     await message.answer(
-        f"Отправить сообщение о закрытии записи {count} пользователям (все, кто не оплатил)?\n\n"
+        f"Отправить сообщение о закрытии записи {count} пользователям "
+        "(все, кто не оплатил и ещё не получал это сообщение)?\n\n"
         f"Предпросмотр:\n\n{t.CLOSING}",
         reply_markup=kb.closing_confirm,
     )
@@ -119,7 +120,10 @@ async def cb_closing(call: CallbackQuery, bot: Bot, db: Database) -> None:
         return
     await call.answer("Отправляю…")
     sent = failed = 0
-    for user_id in await db.unpaid_users():
+    for user_id in await db.closing_recipients():
+        # Claim first: a retried webhook or a double click never sends twice.
+        if not await db.claim_closing(user_id):
+            continue
         try:
             await bot.send_message(user_id, t.CLOSING, reply_markup=kb.closing)
             sent += 1
@@ -158,3 +162,42 @@ async def relay_reply(message: Message, bot: Bot, db: Database, target_user_id: 
         return
     await db.save_relay(message.message_id, target_user_id)
     await message.reply("✉️ Отправлено")
+
+
+# ---------------------------------------------------------------------------
+# Media upload: the manager sends a photo / video note to the bot in private.
+# ---------------------------------------------------------------------------
+
+PHOTO_SLOTS = {"портрет": "portrait", "portrait": "portrait", "программа": "program", "program": "program"}
+SLOT_TITLES = {"portrait": "портрет (шаг 1)", "program": "карточка программы (шаг 5)", "video_note": "кружочек (шаг 6)"}
+MEDIA_HELP = (
+    "Чтобы заменить медиа, пришлите мне сюда:\n"
+    "— фото с подписью <b>портрет</b> — для первого экрана;\n"
+    "— фото с подписью <b>программа</b> — для карточки программы;\n"
+    "— видеокружочек — для шага 6."
+)
+
+
+@router.message(F.chat.type == "private", IsAdmin(), F.video_note)
+async def upload_video_note(message: Message, db: Database) -> None:
+    await db.kv_set("media:video_note", message.video_note.file_id)
+    await message.reply(f"✅ Сохранено: {SLOT_TITLES['video_note']}")
+
+
+@router.message(F.chat.type == "private", IsAdmin(), F.photo)
+async def upload_photo(message: Message, db: Database) -> None:
+    slot = PHOTO_SLOTS.get((message.caption or "").strip().lower())
+    if slot is None:
+        await message.reply(MEDIA_HELP)
+        return
+    await db.kv_set(f"media:{slot}", message.photo[-1].file_id)
+    await message.reply(f"✅ Сохранено: {SLOT_TITLES[slot]}")
+
+
+@router.message(Command("media"), IsAdmin())
+async def cmd_media(message: Message, db: Database) -> None:
+    lines = []
+    for slot, title in SLOT_TITLES.items():
+        mark = "✅" if await db.kv_get(f"media:{slot}") else "—"
+        lines.append(f"{mark} {title}")
+    await message.answer("<b>Медиа</b>\n\n" + "\n".join(lines) + "\n\n" + MEDIA_HELP)

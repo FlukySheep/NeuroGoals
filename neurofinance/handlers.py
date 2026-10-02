@@ -46,11 +46,11 @@ async def open_screen(name: str, bot: Bot, chat_id: int, db: Database, config: C
     if name in simple:
         await simple[name](bot, chat_id)
     elif name == "step1":
-        await screens.step1(bot, chat_id, config)
+        await screens.step1(bot, chat_id, config, db)
     elif name == "step5":
-        await screens.step5(bot, chat_id, config)
+        await screens.step5(bot, chat_id, config, db)
     elif name == "step6":
-        await screens.step6(bot, chat_id, config)
+        await screens.step6(bot, chat_id, config, db)
     elif name == "step8":
         await screens.step8(bot, chat_id, db)
     elif name == "methods":
@@ -68,9 +68,9 @@ async def start_question(bot: Bot, chat_id: int, state: FSMContext) -> None:
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, bot: Bot, config: Config, state: FSMContext) -> None:
+async def cmd_start(message: Message, bot: Bot, db: Database, config: Config, state: FSMContext) -> None:
     await state.clear()
-    await screens.step1(bot, message.chat.id, config)
+    await screens.step1(bot, message.chat.id, config, db)
 
 
 MENU_ROUTES = {

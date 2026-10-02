@@ -6,4 +6,5 @@ COPY neurofinance ./neurofinance
 COPY media ./media
 VOLUME ["/data"]
 ENV DB_PATH=/data/neurofinance.db
+ENV PYTHONUNBUFFERED=1
 CMD ["python", "-m", "neurofinance"]

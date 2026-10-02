@@ -19,7 +19,10 @@ class Config:
     manager_username: str
     group_links: dict[str, str]
     reminder_delay_hours: float
-    db_path: str
+    database_url: str
+    webhook_secret: str
+    cron_secret: str
+    public_url: str
     media: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -47,7 +50,13 @@ def load_config() -> Config:
             "weekday": os.getenv("GROUP_LINK_WEEKDAY", "").strip(),
         },
         reminder_delay_hours=float(os.getenv("REMINDER_DELAY_HOURS", "20")),
-        db_path=os.getenv("DB_PATH", "neurofinance.db"),
+        # Postgres URL (Vercel/Neon set DATABASE_URL or POSTGRES_URL); SQLite file otherwise.
+        database_url=(
+            os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("DB_PATH") or "neurofinance.db"
+        ).strip(),
+        webhook_secret=os.getenv("WEBHOOK_SECRET", "").strip(),
+        cron_secret=os.getenv("CRON_SECRET", "").strip(),
+        public_url=os.getenv("PUBLIC_URL", "").strip().rstrip("/"),
         media={
             "portrait": os.getenv("MEDIA_PORTRAIT", "media/portrait.jpg").strip(),
             "program": os.getenv("MEDIA_PROGRAM", "media/program.jpg").strip(),

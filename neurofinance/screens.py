@@ -9,10 +9,10 @@ from .config import Config
 from .db import Database
 
 
-async def step1(bot: Bot, chat_id: int, config: Config) -> None:
+async def step1(bot: Bot, chat_id: int, config: Config, db: Database) -> None:
     # The reply-keyboard menu rides on the first message; the inline buttons on the second.
     sent = await media.send_photo(
-        bot, chat_id, config.media["portrait"], caption=t.STEP1_CAPTION, reply_markup=kb.main_menu()
+        bot, chat_id, "portrait", config, db, caption=t.STEP1_CAPTION, reply_markup=kb.main_menu()
     )
     if sent is None:
         await bot.send_message(chat_id, t.STEP1_CAPTION, reply_markup=kb.main_menu())
@@ -35,8 +35,8 @@ async def step4(bot: Bot, chat_id: int) -> None:
     await bot.send_message(chat_id, t.STEP4, reply_markup=kb.step4)
 
 
-async def step5(bot: Bot, chat_id: int, config: Config) -> None:
-    await media.send_photo(bot, chat_id, config.media["program"], caption=t.STEP5_CAPTION)
+async def step5(bot: Bot, chat_id: int, config: Config, db: Database) -> None:
+    await media.send_photo(bot, chat_id, "program", config, db, caption=t.STEP5_CAPTION)
     await bot.send_message(chat_id, "\n\n➖➖➖\n\n".join(t.STEP5_DAYS), reply_markup=kb.step5)
 
 
@@ -44,8 +44,8 @@ async def doubt(bot: Bot, chat_id: int) -> None:
     await bot.send_message(chat_id, t.DOUBT, reply_markup=kb.doubt)
 
 
-async def step6(bot: Bot, chat_id: int, config: Config) -> None:
-    if await media.send_video_note(bot, chat_id, config.media["video_note"]) is None:
+async def step6(bot: Bot, chat_id: int, config: Config, db: Database) -> None:
+    if await media.send_video_note(bot, chat_id, config, db) is None:
         await bot.send_message(chat_id, t.STEP6_FALLBACK)
     await bot.send_message(chat_id, t.STEP6, reply_markup=kb.step6)
 
