@@ -41,6 +41,56 @@ On Hobby, delete the `crons` block from `vercel.json` and call
 `https://<your-domain>/api/cron?key=<CRON_SECRET>` hourly from an external scheduler
 such as cron-job.org.
 
+## Рабочий бот (Trello)
+
+A second bot for the team's work group: commands in Telegram create and manage cards on a
+Trello board. Code: [`workbot/`](workbot). It is served by the same Vercel deployment
+(`/api/workbot`) and stores its data in the same database (`work_*` tables).
+
+**Setup (once):**
+
+1. **Bot.** @BotFather → `/newbot` → token into `WORK_BOT_TOKEN`. Leave *Group Privacy* on:
+   the bot then sees only commands and replies to its own messages, not the whole chat.
+2. **Trello account for the bot.** Best a separate account (e.g. «NeuroGoals Bot»): the board,
+   comments and changes made through the bot appear under it.
+   - Log in as that account, open <https://trello.com/power-ups/admin> → *New* → create a Power-Up
+     (any name, any workspace) → *API key* → *Generate a new API key* → `TRELLO_KEY`.
+   - On the same page click the *Token* link, allow access → `TRELLO_TOKEN`.
+     (Or open `https://trello.com/1/authorize?expiration=never&scope=read,write&response_type=token&key=<TRELLO_KEY>&name=NeuroGoals%20Bot`.)
+3. **Vercel env:** `WORK_BOT_TOKEN`, `WORK_WEBHOOK_SECRET` (random string), `TRELLO_KEY`,
+   `TRELLO_TOKEN`; optional `WORK_TZ` (default Europe/Moscow). Redeploy.
+4. **Webhook:** open `https://<your-domain>/api/workbot/setup?key=<WORK_WEBHOOK_SECRET>` →
+   `"ok": true`, and `trello_account` shows the bot's Trello login.
+5. **Group:** add the bot to the work group, send `/chatid` there → put the number into
+   `WORK_CHAT_ID` → redeploy. Until then the bot ignores the group.
+6. **Board:** a group admin sends `/setup`. The bot creates the board «NeuroGoals · Работа»:
+   lists Входящие → К выполнению → В работе → На проверке → Готово, plus События and
+   Заметки и требования; type labels (Задача, Событие, Требование, Заметка, Баг, Идея) and
+   priority labels.
+7. **People:** everyone sends `/link <their Trello username>` in the group: the bot adds them to
+   the board and can assign them by @username. No Trello account yet: `/link name@mail.com`
+   sends an invitation. Free Trello workspaces allow up to 10 collaborators.
+
+**Commands** (the bot answers in Russian; `/help` in the group shows the same):
+
+| Command | |
+|---|---|
+| `/task Обновить лендинг @anna !срочно до пятницы #маркетинг` | task; `@user` assigns (`@я` = me), `!срочно/!средний/!низкий`, `#tag` label, due date |
+| `/event Вебинар 12.10 19:00` · `/req` · `/note` · `/idea` · `/bug` | other card types; lines `- …` below become a checklist, other lines the description |
+| reply `/task` (or `/note`…) to any message | card made from that message |
+| `/done 42` · `/move 42 на проверке` · `/assign 42 @ivan` · `/due 42 завтра` | change a card; instead of the number you can reply to the bot's card message |
+| `/edit 42 …` · `/comment 42 …` · `/card 42` · `/delete 42` · `/restore 42` | `/delete` archives; deleting for good is admin-only, with confirmation |
+| reply with plain text to a card message | becomes a Trello comment |
+| `/list` · `/list мои` · `/list @anna` · `/list просрочено` · `/list неделя` · `/list все` · `/mytasks` · `/overdue` | lists |
+| `/link` · `/unlink` · `/members` · `/board` · `/setup` · `/chatid` | setup |
+
+Card messages have buttons: ✅ Готово, 🔄 Статус, 🙋 Беру, 👥 Назначить, ⏰ Срок, 🗄 В архив.
+Dates understood: `сегодня, завтра, послезавтра, в пятницу / пт, 12.10, 12.10.2027, 12.10 18:00,
+в 15:00, через 3 дня / 2 часа / неделю`. Without a time: 18:00 (events 10:00).
+
+Locally: `python -m workbot` (long polling, SQLite unless `DATABASE_URL` is set; use a separate
+test bot). Tests: `pip install pytest && python -m pytest tests`.
+
 ## Run locally / on a server (long polling)
 
 ```bash
