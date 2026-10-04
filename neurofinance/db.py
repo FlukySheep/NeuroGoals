@@ -66,6 +66,8 @@ def _to_pg(sql: str) -> str:
 
 
 class Database:
+    schema: list[str] = SCHEMA  # subclasses (workbot) add their own tables
+
     def __init__(self, url: str):
         self.is_pg = url.startswith(("postgres://", "postgresql://"))
         self.url = _clean_pg_url(url) if self.is_pg else url
@@ -92,14 +94,14 @@ class Database:
                 self.url, min_size=0, max_size=5, statement_cache_size=0,
                 max_inactive_connection_lifetime=60,
             )
-            for stmt in SCHEMA:
+            for stmt in self.schema:
                 await handle.execute(stmt)
         else:
             import aiosqlite
 
             handle = await aiosqlite.connect(self.url.removeprefix("sqlite:///"))
             handle.row_factory = aiosqlite.Row
-            for stmt in SCHEMA:
+            for stmt in self.schema:
                 await handle.execute(stmt)
             await handle.commit()
         self._handle, self._loop = handle, loop

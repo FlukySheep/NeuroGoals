@@ -3,7 +3,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 300,
-      "includeFiles": "{neurofinance/**,media/**}"
+      "includeFiles": "{neurofinance/**,workbot/**,media/**}"
     }
   },
   "rewrites": [{ "source": "/:path*", "destination": "/api/index?__path=/:path*" }],
