@@ -82,7 +82,7 @@ CSS = """
 @media (prefers-color-scheme:dark){:root{--bg:#161614;--card:#211f1c;--ink:#ece8e1;--muted:#a19b91;--line:#36322c;--accent:#7fb48f;--accent-ink:#10140f;--warn:#e48a6a;--chip:#2a3129}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 .wrap{max-width:820px;margin:0 auto;padding:16px}
-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 20px}
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:8px 0 20px}
 h1{font-size:22px;margin:0}h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:28px 0 8px}
 a{color:var(--accent)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px}
@@ -119,6 +119,14 @@ def _page(title: str, body: str, head: str = "") -> HTMLResponse:
 <title>{html.escape(title)}</title><style>{CSS}</style>{head}</head>
 <body><div class="wrap">{body}</div></body></html>"""
     )
+
+
+def nav(active: str) -> str:
+    links = [("messages", "/admin", "Сообщения"), ("leads", "/admin/leads", "Лиды")]
+    items = "".join(
+        f'<a class="btn{" primary" if key == active else ""}" href="{href}">{title}</a>' for key, href, title in links
+    )
+    return f'<div class="row">{items}<a class="btn" href="/admin/logout">Выйти</a></div>'
 
 
 def _flash(request: Request) -> str:
@@ -192,7 +200,7 @@ async def index(request: Request) -> Response:
         f"<h2>{html.escape(name)}</h2><div class='card list'>{''.join(items)}</div>" for name, items in sections.items()
     )
     return _page("Сообщения бота", f"""
-<header><h1>Сообщения бота</h1><a class="btn" href="/admin/logout">Выйти</a></header>
+<header><h1>Сообщения бота</h1>{nav("messages")}</header>
 {_flash(request)}
 <p class="note">Нажмите на сообщение, чтобы изменить текст или добавить картинку.
 Изменения сразу появляются в боте.</p>{body}""")
@@ -345,7 +353,7 @@ async def edit_save(request: Request) -> Response:
             return _redirect(here, err="Сохранено, но превью некуда отправить: укажите ADMIN_CHAT_ID.")
         try:
             await _bot().send_message(config.admin_chat_id, f"👁 Превью: <b>{html.escape(d.title)}</b>")
-            await content.send(_bot(), config.admin_chat_id, db, key, None, config, **_sample_vars())
+            await content.send(_bot(), config.admin_chat_id, db, key, None, config, track=False, **_sample_vars())
         except Exception as exc:
             log.exception("Preview failed")
             return _redirect(here, err=f"Сохранено, но Telegram не принял сообщение: {exc}")

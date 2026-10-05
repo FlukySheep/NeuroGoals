@@ -44,6 +44,7 @@ async def confirm_payment(bot: Bot, db: Database, config: Config, user_id: int) 
     if await db.get_user(user_id) is None:
         return False
     await db.set_status(user_id, "paid")
+    await db.bump_step(user_id, 11)
     await screens.step10(bot, user_id, db, config)
     return True
 

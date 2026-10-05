@@ -60,6 +60,16 @@ def _clean_pg_url(url: str) -> str:
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
+# Lead-tracking columns added after the first release: (name, type).
+USER_COLUMNS = [
+    ("situation", "TEXT"),
+    ("source", "TEXT"),
+    ("last_seen", "DOUBLE PRECISION"),
+    ("furthest_step", "INTEGER NOT NULL DEFAULT 0"),
+    ("notes", "TEXT"),
+]
+
+
 def _to_pg(sql: str) -> str:
     counter = iter(range(1, 1000))
     return re.sub(r"\?", lambda _: f"${next(counter)}", sql)
@@ -94,6 +104,8 @@ class Database:
             )
             for stmt in SCHEMA:
                 await handle.execute(stmt)
+            for name, kind in USER_COLUMNS:
+                await handle.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {name} {kind}")
         else:
             import aiosqlite
 
@@ -101,6 +113,11 @@ class Database:
             handle.row_factory = aiosqlite.Row
             for stmt in SCHEMA:
                 await handle.execute(stmt)
+            async with handle.execute("PRAGMA table_info(users)") as cur:
+                existing = {row[1] for row in await cur.fetchall()}
+            for name, kind in USER_COLUMNS:
+                if name not in existing:
+                    await handle.execute(f"ALTER TABLE users ADD COLUMN {name} {kind}")
             await handle.commit()
         self._handle, self._loop = handle, loop
         return handle
@@ -139,11 +156,56 @@ class Database:
 
     async def upsert_user(self, user_id: int, username: str | None, full_name: str) -> None:
         await self.execute(
-            "INSERT INTO users (user_id, username, full_name, created_at) VALUES (?, ?, ?, ?) "
+            "INSERT INTO users (user_id, username, full_name, created_at, last_seen) VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, "
-            "full_name=excluded.full_name, blocked=0",
-            user_id, username, full_name, time.time(),
+            "full_name=excluded.full_name, last_seen=excluded.last_seen, blocked=0",
+            user_id, username, full_name, time.time(), time.time(),
         )
+
+    # -- lead tracking ------------------------------------------------------
+
+    async def set_source_once(self, user_id: int, source: str) -> None:
+        """First touch wins: the channel that brought the person in."""
+        await self.execute(
+            "UPDATE users SET source=? WHERE user_id=? AND (source IS NULL OR source='')", source, user_id
+        )
+
+    async def set_situation(self, user_id: int, situation: str) -> None:
+        await self.execute("UPDATE users SET situation=? WHERE user_id=?", situation, user_id)
+
+    async def bump_step(self, user_id: int, step: int) -> None:
+        await self.execute(
+            "UPDATE users SET furthest_step=? WHERE user_id=? AND furthest_step<?", step, user_id, step
+        )
+
+    async def set_notes(self, user_id: int, notes: str) -> None:
+        await self.execute("UPDATE users SET notes=? WHERE user_id=?", notes, user_id)
+
+    async def leads(self, status: str = "", group: str = "", situation: str = "", source: str = "",
+                    query: str = "", limit: int | None = None) -> list[dict]:
+        where, args = [], []
+        for column, value in (("status", status), ("group_key", group), ("situation", situation),
+                              ("source", source)):
+            if value == "-":
+                where.append(f"({column} IS NULL OR {column}='')")
+            elif value:
+                where.append(f"{column}=?")
+                args.append(value)
+        if query:
+            where.append("(LOWER(COALESCE(full_name,'')) LIKE ? OR LOWER(COALESCE(username,'')) LIKE ? "
+                         "OR LOWER(COALESCE(notes,'')) LIKE ?)")
+            args += [f"%{query.lower()}%"] * 3
+        sql = "SELECT * FROM users"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY COALESCE(last_seen, created_at) DESC"
+        if limit:
+            sql += f" LIMIT {int(limit)}"
+        return await self.fetch(sql, *args)
+
+    async def distinct_sources(self) -> list[str]:
+        rows = await self.fetch("SELECT DISTINCT source FROM users WHERE source IS NOT NULL AND source<>''")
+        return sorted(r["source"] for r in rows)
 
     async def get_user(self, user_id: int) -> dict | None:
         return await self.fetchone("SELECT * FROM users WHERE user_id=?", user_id)

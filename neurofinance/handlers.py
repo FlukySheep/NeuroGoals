@@ -1,7 +1,9 @@
 """User-facing handlers (private chat with the bot)."""
 
+import re
+
 from aiogram import Bot, F, Router
-from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.filters import Command, CommandObject, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
@@ -70,9 +72,17 @@ async def tell_admin_unavailable(message: Message, bot: Bot, db: Database, confi
 # ---------------------------------------------------------------------------
 
 
+SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
 @router.message(CommandStart())
-async def cmd_start(message: Message, bot: Bot, db: Database, config: Config, state: FSMContext) -> None:
+async def cmd_start(
+    message: Message, command: CommandObject, bot: Bot, db: Database, config: Config, state: FSMContext
+) -> None:
     await state.clear()
+    # t.me/<bot>?start=instagram -> the lead's source (first touch is kept).
+    if command.args and SOURCE_RE.match(command.args):
+        await db.set_source_once(message.from_user.id, command.args.lower())
     await screens.step1(bot, message.chat.id, db, config)
 
 
@@ -129,6 +139,7 @@ async def cb_branch(call: CallbackQuery, bot: Bot, db: Database) -> None:
     await call.answer()
     key = call.data[3:]
     if key in t.BRANCHES:
+        await db.set_situation(call.from_user.id, key)
         await screens.branch(bot, call.message.chat.id, db, key)
 
 
@@ -204,6 +215,7 @@ async def on_receipt(message: Message, bot: Bot, db: Database, config: Config, s
     user = await db.get_user(message.from_user.id)
     if user and user["status"] != "paid":
         await db.set_status(message.from_user.id, "pending")
+    await db.bump_step(message.from_user.id, 10)
     delivered = await to_admin(
         bot, config, db, message.from_user.id, "💳 Новая оплата — проверьте платёж",
         original=message, reply_markup=kb.admin_payment(message.from_user.id),

@@ -90,6 +90,18 @@ and gives the user a link to @ZoeRai.
 The menu (что такое, программа, формат, стоимость, обо мне, FAQ, записаться, вопрос) is
 Telegram's **Menu** button next to the input field: hidden until tapped.
 
+## Leads
+
+`/admin/leads` lists everyone who opened the bot (the manager's own account excluded):
+name and @username (tap to open the chat), status, group, the furthest funnel step reached,
+the situation picked in step 2, the source, first / last activity, and free-form notes.
+
+- Filters by status, group, situation and source, plus search by name, @username or notes.
+- **⬇ Скачать CSV** exports the filtered list (`;`-separated, UTF-8 with BOM, so it opens in
+  Excel and Google Sheets).
+- **Sources:** share links like `https://t.me/neurogoals_bot?start=instagram`. The first source
+  a person arrives with is kept. The link builder at the bottom of the page makes them.
+
 ## Automatic messages
 
 - **Reminder**: sent once, `REMINDER_DELAY_HOURS` (default 20 h, checked hourly) after a

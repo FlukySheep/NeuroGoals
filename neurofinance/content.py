@@ -131,6 +131,37 @@ def _build_catalog() -> dict[str, PostDef]:
 CATALOG = _build_catalog()
 
 
+# Funnel stages for the lead database: the furthest one a person reached.
+STAGES = {
+    1: "Открыл бота",
+    2: "Ответил, что за ситуация",
+    3: "Финансовый сценарий",
+    4: "Что будет меняться",
+    5: "Смотрел программу",
+    6: "Смотрел видео Зои",
+    7: "Смотрел формат и цену",
+    8: "Выбрал группу",
+    9: "Смотрел способы оплаты",
+    10: "Отправил чек",
+    11: "Оплатил",
+}
+
+_POST_STAGE = {
+    "step1": 1, "step2": 2, "step3": 3, "step4": 4, "step5": 5, "doubt": 5,
+    "step6": 6, "step6_fallback": 6, "step7": 7, "choose_group": 7, "price": 7,
+    "step8": 8, "step9": 9, "payment_methods": 9, "ask_receipt": 9,
+    "receipt_received": 10, "step10": 11,
+}
+
+
+def stage_of(key: str) -> int:
+    if key.startswith("branch_"):
+        return 2
+    if key.startswith("method_"):
+        return 9
+    return _POST_STAGE.get(key, 0)
+
+
 # ---------------------------------------------------------------------------
 # Rendering and sending
 # ---------------------------------------------------------------------------
@@ -189,8 +220,12 @@ async def send(
     key: str,
     reply_markup: InlineKeyboardMarkup | None = None,
     config: Config | None = None,
+    *,
+    track: bool = True,
     **variables: str,
 ) -> Message | None:
+    if track and chat_id > 0 and stage_of(key):
+        await db.bump_step(chat_id, stage_of(key))
     post = await render(db, key, **variables)
     fallback = None
     slot = CATALOG[key].fallback_slot
