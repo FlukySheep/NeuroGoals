@@ -21,6 +21,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
+from workbot import web as workbot_web
+
 from . import leads, panel
 from .app import make_bot, make_dispatcher, send_reminders, setup_profile
 from .config import Config, load_config
@@ -72,6 +74,10 @@ async def health(request: Request) -> JSONResponse:
         "ADMIN_CHAT_ID": bool(env.get("ADMIN_CHAT_ID")),
         "ADMIN_PASSWORD": bool(env.get("ADMIN_PASSWORD")),
         "database": "postgres" if db_url.startswith("postgres") else "MISSING (add Neon in Storage)",
+        "workbot": {
+            name: bool(env.get(name))
+            for name in ("WORK_BOT_TOKEN", "WORK_WEBHOOK_SECRET", "WORK_CHAT_ID", "TRELLO_KEY", "TRELLO_TOKEN")
+        },
     })
 
 
@@ -166,6 +172,7 @@ _routes = Starlette(
         Route("/api/setup", setup, methods=["GET"]),
         *leads.routes,
         *panel.routes,
+        *workbot_web.routes,
     ],
     exception_handlers={404: not_found},
 )

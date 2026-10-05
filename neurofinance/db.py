@@ -76,6 +76,8 @@ def _to_pg(sql: str) -> str:
 
 
 class Database:
+    schema: list[str] = SCHEMA  # subclasses (workbot) add their own tables
+
     def __init__(self, url: str):
         self.is_pg = url.startswith(("postgres://", "postgresql://"))
         self.url = _clean_pg_url(url) if self.is_pg else url
@@ -102,7 +104,7 @@ class Database:
                 self.url, min_size=0, max_size=5, statement_cache_size=0,
                 max_inactive_connection_lifetime=60,
             )
-            for stmt in SCHEMA:
+            for stmt in self.schema:
                 await handle.execute(stmt)
             for name, kind in USER_COLUMNS:
                 await handle.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {name} {kind}")
@@ -111,7 +113,7 @@ class Database:
 
             handle = await aiosqlite.connect(self.url.removeprefix("sqlite:///"))
             handle.row_factory = aiosqlite.Row
-            for stmt in SCHEMA:
+            for stmt in self.schema:
                 await handle.execute(stmt)
             async with handle.execute("PRAGMA table_info(users)") as cur:
                 existing = {row[1] for row in await cur.fetchall()}
