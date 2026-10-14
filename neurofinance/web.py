@@ -12,7 +12,7 @@ import asyncio
 import hmac
 import logging
 import os
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
@@ -66,8 +66,13 @@ async def health(request: Request) -> JSONResponse:
     # Only reports whether settings are present, never their values.
     env = os.environ
     db_url = env.get("DATABASE_URL") or env.get("POSTGRES_URL") or ""
+    host = urlsplit(db_url).hostname or "" if db_url.startswith("postgres") else ""
     return JSONResponse({
         "bot": "НейроФинансы",
+        "environment": env.get("VERCEL_ENV", "local"),
+        "branch": env.get("VERCEL_GIT_COMMIT_REF", ""),
+        "database_host": host.split(".", 1)[0],
+        "catalog_enabled": env.get("CATALOG_ENABLED", "off"),
         "BOT_TOKEN": bool(env.get("BOT_TOKEN")),
         "WEBHOOK_SECRET": bool(env.get("WEBHOOK_SECRET")),
         "CRON_SECRET": bool(env.get("CRON_SECRET")),
@@ -121,11 +126,36 @@ async def setup(request: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status_code=500)
 
 
+def is_preview() -> bool:
+    return os.getenv("VERCEL_ENV", "") == "preview"
+
+
+def production_bot_username() -> str:
+    return os.getenv("PRODUCTION_BOT_USERNAME", "neurogoals_bot").lstrip("@").lower()
+
+
+def webhook_url(base: str) -> str:
+    url = f"{base}/api/telegram"
+    # Preview deployments sit behind Vercel Deployment Protection; Telegram can only pass
+    # the bypass secret in the URL. Vercel exposes it when "Protection Bypass for
+    # Automation" is enabled for the project.
+    bypass = os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET", "")
+    return f"{url}?x-vercel-protection-bypass={bypass}" if bypass else url
+
+
 async def _setup(request: Request) -> JSONResponse:
     host = request.headers.get("x-forwarded-host") or request.url.hostname
     base = S.config.public_url or f"https://{host}"
-    url = f"{base}/api/telegram"
+    url = webhook_url(base)
     bot = _bot()
+    me = await bot.get_me()
+    if is_preview() and (me.username or "").lower() == production_bot_username():
+        # Never let a staging/preview build take the live bot's webhook.
+        return JSONResponse({
+            "ok": False,
+            "error": f"This is a preview deployment but BOT_TOKEN belongs to @{me.username} (production). "
+                     "Set the test bot's token for the Preview environment in Vercel.",
+        }, status_code=409)
     await S.db.connect()  # creates tables on first run
     await bot.set_webhook(
         url,
@@ -134,12 +164,12 @@ async def _setup(request: Request) -> JSONResponse:
         drop_pending_updates=False,
     )
     await setup_profile(bot)
-    me = await bot.get_me()
     info = await bot.get_webhook_info()
     return JSONResponse({
         "ok": True,
+        "environment": os.getenv("VERCEL_ENV", "local"),
         "bot": f"@{me.username}",
-        "webhook": info.url,
+        "webhook": info.url.split("?", 1)[0],
         "pending_updates": info.pending_update_count,
         "admin_chat_configured": bool(S.config.admin_chat_id),
     })

@@ -24,6 +24,11 @@ class Config:
     cron_secret: str
     public_url: str
     media: dict[str, str] = field(default_factory=dict)
+    # Course catalog feature switch: "off" (default), "admins" (only ADMIN_IDS see it), "on".
+    catalog: str = "off"
+
+    def catalog_enabled_for(self, user_id: int) -> bool:
+        return self.catalog == "on" or (self.catalog == "admins" and user_id in self.admin_ids)
 
     @property
     def manager_url(self) -> str:
@@ -57,6 +62,7 @@ def load_config() -> Config:
         webhook_secret=os.getenv("WEBHOOK_SECRET", "").strip(),
         cron_secret=os.getenv("CRON_SECRET", "").strip(),
         public_url=os.getenv("PUBLIC_URL", "").strip().rstrip("/"),
+        catalog=os.getenv("CATALOG_ENABLED", "off").strip().lower(),
         media={
             "portrait": os.getenv("MEDIA_PORTRAIT", "media/portrait.jpg").strip(),
             "program": os.getenv("MEDIA_PROGRAM", "media/program.jpg").strip(),

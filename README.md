@@ -41,6 +41,45 @@ On Hobby, delete the `crons` block from `vercel.json` and call
 `https://<your-domain>/api/cron?key=<CRON_SECRET>` hourly from an external scheduler
 such as cron-job.org.
 
+## Development pipeline: staging → production
+
+The live bot must never break, so new features go through a staging copy first.
+
+| | Production | Staging |
+|---|---|---|
+| Branch | `claude/exciting-bell-kl9glt` | `staging` |
+| Vercel environment | Production (`neuro-goals.vercel.app`) | Preview (stable URL `neuro-goals-git-staging-….vercel.app`) |
+| Telegram bot | @neurogoals_bot | @neurogoals_master_bot (test) |
+| Database | Neon main branch | Neon branch (isolated copy) |
+
+**Flow:** work on `staging` → GitHub Actions runs the tests (`.github/workflows/tests.yml`,
+SQLite and Postgres) → Vercel builds a preview → try it in the test bot → merge into the
+production branch with `CATALOG_ENABLED=off` → check the live bot is unchanged → switch on
+(`admins` first, then `on`). Rollback = set the switch back to `off` and redeploy.
+Database changes are additive only (new tables/columns), so older code keeps working.
+
+**Guard rails:** `/api/setup` on a preview deployment refuses to register the webhook if
+`BOT_TOKEN` belongs to the production bot (`PRODUCTION_BOT_USERNAME`, default `neurogoals_bot`).
+`/` shows `environment`, `branch` and `database_host`, so you can see which database a
+deployment uses.
+
+**One-time staging setup in Vercel** (*Settings → Environment Variables*):
+
+1. Production-only variables: make sure the live `BOT_TOKEN` is ticked for **Production** only.
+2. Add for **Preview** (scope it to the `staging` branch): `BOT_TOKEN` = test bot token,
+   `WEBHOOK_SECRET`, `CRON_SECRET`, `ADMIN_PASSWORD`, `ADMIN_CHAT_ID` (your own id for testing),
+   `CATALOG_ENABLED=on`.
+3. Database: in the Neon integration enable a database branch for preview deployments,
+   or set `DATABASE_URL` for Preview to a Neon branch connection string.
+4. *Settings → Deployment Protection → Protection Bypass for Automation* → generate. Telegram
+   then reaches the protected preview (the bot adds the secret to the webhook URL itself).
+5. After the first staging deploy open
+   `https://<staging-url>/api/setup?key=<staging WEBHOOK_SECRET>`; expect `"environment": "preview"`
+   and `"bot": "@neurogoals_master_bot"`.
+
+Tests locally: `pip install pytest httpx && python -m pytest tests`
+(`TEST_DATABASE_URL=postgresql://…` to run them on Postgres).
+
 ## Рабочий бот (Trello)
 
 A second bot for the team's work group: commands in Telegram create and manage cards on a
