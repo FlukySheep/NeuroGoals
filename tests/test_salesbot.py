@@ -110,7 +110,7 @@ def env(tmp_path, monkeypatch):
         "CRON_SECRET": "crsec", "ADMIN_PASSWORD": "pw", "GROUP_LINK_WEEKEND": "https://t.me/+weekend",
         "DATABASE_URL": _db_url(tmp_path), "MEDIA_PORTRAIT": "", "MEDIA_PROGRAM": "", "MEDIA_VIDEO_NOTE": "",
     }
-    for key in ("POSTGRES_URL", "VERCEL_ENV", "VERCEL_AUTOMATION_BYPASS_SECRET", "CATALOG_ENABLED", "PUBLIC_URL"):
+    for key in ("POSTGRES_URL", "VERCEL_ENV", "VERCEL_AUTOMATION_BYPASS_SECRET", "CATALOG_ENABLED", "PUBLIC_URL", "APP_ENV"):
         monkeypatch.delenv(key, raising=False)
     for key, value in values.items():
         monkeypatch.setenv(key, value)
@@ -447,3 +447,25 @@ def test_leads_page_filters_notes_and_csv(web):
 
     web.get("/admin/logout")
     assert web.get("/admin/leads.csv").status_code == 403
+
+
+def test_staging_refuses_live_database(web, monkeypatch):
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@ep-withered-dawn-b7wsvhzp-pooler.eu.aws.neon.tech/db")
+    hdr = {"X-Telegram-Bot-Api-Secret-Token": "whsec"}
+    assert web.post("/api/telegram", json=_update(7, "/start"), headers=hdr).status_code == 503
+    assert web.get("/api/cron?key=crsec").status_code == 503
+    assert web.get("/api/setup?key=whsec").status_code == 503
+    assert "DANGER" in web.get("/").json()
+    assert not web.tg.calls  # nothing was sent anywhere
+
+
+def test_staging_guard_ignores_other_databases(monkeypatch):
+    import neurofinance.web as webmod
+
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@ep-other-staging-123-pooler.neon.tech/db")
+    assert not webmod.staging_on_live_database()
+    monkeypatch.setenv("APP_ENV", "")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@ep-withered-dawn-b7wsvhzp-pooler.neon.tech/db")
+    assert not webmod.staging_on_live_database()  # production itself is fine

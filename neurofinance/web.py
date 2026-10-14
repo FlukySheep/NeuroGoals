@@ -66,8 +66,11 @@ async def health(request: Request) -> JSONResponse:
     # Only reports whether settings are present, never their values.
     env = os.environ
     db_url = env.get("DATABASE_URL") or env.get("POSTGRES_URL") or ""
-    host = urlsplit(db_url).hostname or "" if db_url.startswith("postgres") else ""
+    host = database_host()
     return JSONResponse({
+        **({"DANGER": "staging is connected to the LIVE database; all bot actions are blocked"}
+           if staging_on_live_database() else {}),
+        "app_env": env.get("APP_ENV", ""),
         "bot": "НейроФинансы",
         "environment": env.get("VERCEL_ENV", "local"),
         "branch": env.get("VERCEL_GIT_COMMIT_REF", ""),
@@ -87,6 +90,8 @@ async def health(request: Request) -> JSONResponse:
 
 
 async def telegram(request: Request) -> JSONResponse:
+    if staging_on_live_database():
+        return live_db_refusal()
     _init()
     if not S.config.webhook_secret:
         return JSONResponse({"error": "WEBHOOK_SECRET is not configured"}, status_code=503)
@@ -103,6 +108,8 @@ async def telegram(request: Request) -> JSONResponse:
 
 
 async def cron(request: Request) -> JSONResponse:
+    if staging_on_live_database():
+        return live_db_refusal()
     _init()
     supplied = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     supplied = supplied or request.query_params.get("key", "")
@@ -113,6 +120,8 @@ async def cron(request: Request) -> JSONResponse:
 
 
 async def setup(request: Request) -> JSONResponse:
+    if staging_on_live_database():
+        return live_db_refusal()
     try:
         _init()
     except Exception as exc:
@@ -128,6 +137,27 @@ async def setup(request: Request) -> JSONResponse:
 
 def is_preview() -> bool:
     return os.getenv("VERCEL_ENV", "") == "preview"
+
+
+def database_host() -> str:
+    db_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or ""
+    return (urlsplit(db_url).hostname or "") if db_url.startswith("postgres") else ""
+
+
+def staging_on_live_database() -> bool:
+    """A staging copy must never read or write the live database."""
+    if os.getenv("APP_ENV", "").lower() != "staging":
+        return False
+    live = os.getenv("PRODUCTION_DATABASE_HOST", "ep-withered-dawn-b7wsvhzp").lower()
+    return bool(live) and database_host().lower().startswith(live)
+
+
+def live_db_refusal() -> JSONResponse:
+    return JSONResponse(
+        {"ok": False, "error": "APP_ENV=staging but DATABASE_URL points at the live database. "
+                               "Connect the staging project to its own Neon database."},
+        status_code=503,
+    )
 
 
 def production_bot_username() -> str:
