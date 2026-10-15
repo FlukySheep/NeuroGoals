@@ -41,6 +41,31 @@ SCHEMA = [
         photo      TEXT,
         updated_at DOUBLE PRECISION
     )""",
+    # Course catalog (feature switch CATALOG_ENABLED).
+    """CREATE TABLE IF NOT EXISTS courses (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        summary     TEXT,
+        photo       TEXT,
+        status      TEXT NOT NULL DEFAULT 'draft',
+        kind        TEXT NOT NULL DEFAULT 'cohort',
+        price_eur   INTEGER NOT NULL DEFAULT 0,
+        price_rub   INTEGER NOT NULL DEFAULT 0,
+        methods     TEXT,
+        group_link  TEXT,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        created_at  DOUBLE PRECISION,
+        updated_at  DOUBLE PRECISION
+    )""",
+    """CREATE TABLE IF NOT EXISTS cohorts (
+        id          TEXT PRIMARY KEY,
+        course_id   TEXT NOT NULL,
+        title       TEXT NOT NULL,
+        dates       TEXT,
+        time_text   TEXT,
+        group_link  TEXT,
+        sort_order  INTEGER NOT NULL DEFAULT 0
+    )""",
     """CREATE TABLE IF NOT EXISTS fsm (
         k     TEXT PRIMARY KEY,
         state TEXT,
@@ -308,6 +333,56 @@ class Database:
 
     async def content_delete(self, key: str) -> None:
         await self.execute("DELETE FROM content WHERE key=?", key)
+
+    # -- course catalog -----------------------------------------------------
+
+    COURSE_FIELDS = ("title", "summary", "photo", "status", "kind", "price_eur", "price_rub",
+                     "methods", "group_link", "sort_order")
+    COHORT_FIELDS = ("course_id", "title", "dates", "time_text", "group_link", "sort_order")
+
+    async def courses_all(self) -> list[dict]:
+        return await self.fetch("SELECT * FROM courses ORDER BY sort_order, created_at")
+
+    async def course_get(self, course_id: str) -> dict | None:
+        return await self.fetchone("SELECT * FROM courses WHERE id=?", course_id)
+
+    async def course_save(self, course_id: str, **fields) -> None:
+        fields = {k: v for k, v in fields.items() if k in self.COURSE_FIELDS}
+        now = time.time()
+        if await self.course_get(course_id) is None:
+            cols = ["id", "created_at", "updated_at", *fields]
+            await self.execute(
+                f"INSERT INTO courses ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                course_id, now, now, *fields.values(),
+            )
+        elif fields:
+            sets = ", ".join(f"{k}=?" for k in fields)
+            await self.execute(f"UPDATE courses SET {sets}, updated_at=? WHERE id=?", *fields.values(), now, course_id)
+
+    async def course_delete(self, course_id: str) -> None:
+        await self.execute("DELETE FROM cohorts WHERE course_id=?", course_id)
+        await self.execute("DELETE FROM courses WHERE id=?", course_id)
+
+    async def cohorts_for(self, course_id: str) -> list[dict]:
+        return await self.fetch("SELECT * FROM cohorts WHERE course_id=? ORDER BY sort_order, id", course_id)
+
+    async def cohort_get(self, cohort_id: str) -> dict | None:
+        return await self.fetchone("SELECT * FROM cohorts WHERE id=?", cohort_id)
+
+    async def cohort_save(self, cohort_id: str, **fields) -> None:
+        fields = {k: v for k, v in fields.items() if k in self.COHORT_FIELDS}
+        if await self.cohort_get(cohort_id) is None:
+            cols = ["id", *fields]
+            await self.execute(
+                f"INSERT INTO cohorts ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                cohort_id, *fields.values(),
+            )
+        elif fields:
+            sets = ", ".join(f"{k}=?" for k in fields)
+            await self.execute(f"UPDATE cohorts SET {sets} WHERE id=?", *fields.values(), cohort_id)
+
+    async def cohort_delete(self, cohort_id: str) -> None:
+        await self.execute("DELETE FROM cohorts WHERE id=?", cohort_id)
 
     # -- FSM state ----------------------------------------------------------
 

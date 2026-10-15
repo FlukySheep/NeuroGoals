@@ -123,6 +123,8 @@ def _page(title: str, body: str, head: str = "") -> HTMLResponse:
 
 def nav(active: str) -> str:
     links = [("messages", "/admin", "Сообщения"), ("leads", "/admin/leads", "Лиды")]
+    if _cfg().catalog != "off":
+        links.append(("courses", "/admin/courses", "Курсы"))
     items = "".join(
         f'<a class="btn{" primary" if key == active else ""}" href="{href}">{title}</a>' for key, href, title in links
     )
