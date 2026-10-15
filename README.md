@@ -43,39 +43,37 @@ such as cron-job.org.
 
 ## Development pipeline: staging → production
 
-The live bot must never break, so new features go through a staging copy first.
+The live bot must never break, so new features go through a separate staging copy first.
 
 | | Production | Staging |
 |---|---|---|
-| Branch | `claude/exciting-bell-kl9glt` | `staging` |
-| Vercel environment | Production (`neuro-goals.vercel.app`) | Preview (stable URL `neuro-goals-git-staging-….vercel.app`) |
+| Vercel project | `neuro-goals` → `neuro-goals.vercel.app` | `neuro-goals-staging` → `neuro-goals-staging.vercel.app` |
+| Branch (Production Branch / Branch Tracking) | `claude/exciting-bell-kl9glt` | `staging` |
 | Telegram bot | @neurogoals_bot | @neurogoals_master_bot (test) |
-| Database | Neon main branch | Neon branch (isolated copy) |
+| Database | Neon `ep-withered-dawn-…` | its own Neon database (`ep-royal-mouse-…`) |
+| `CATALOG_ENABLED` | `off` | `on` |
+| `APP_ENV` | (unset) | `staging` |
 
 **Flow:** work on `staging` → GitHub Actions runs the tests (`.github/workflows/tests.yml`,
-SQLite and Postgres) → Vercel builds a preview → try it in the test bot → merge into the
-production branch with `CATALOG_ENABLED=off` → check the live bot is unchanged → switch on
-(`admins` first, then `on`). Rollback = set the switch back to `off` and redeploy.
-Database changes are additive only (new tables/columns), so older code keeps working.
+SQLite and Postgres) → Vercel deploys the staging project → try it in the test bot → merge
+`staging` into the production branch with `CATALOG_ENABLED=off` → check the live bot is
+unchanged → switch on (`admins` first, then `on`). Rollback = set the switch back to `off`
+and redeploy. Database changes are additive only (new tables/columns), so older code keeps working.
 
-**Guard rails:** `/api/setup` on a preview deployment refuses to register the webhook if
-`BOT_TOKEN` belongs to the production bot (`PRODUCTION_BOT_USERNAME`, default `neurogoals_bot`).
-`/` shows `environment`, `branch` and `database_host`, so you can see which database a
-deployment uses.
+**Guard rails** (so a staging copy can never touch the live bot or its data):
 
-**One-time staging setup in Vercel** (*Settings → Environment Variables*):
+- With `APP_ENV=staging`, the webhook, cron and setup endpoints return 503 if `DATABASE_URL`
+  points at the live database (`PRODUCTION_DATABASE_HOST`, default `ep-withered-dawn-b7wsvhzp`);
+  `/` then shows a `DANGER` line.
+- `/api/setup` on a preview deployment refuses the production bot token
+  (`PRODUCTION_BOT_USERNAME`, default `neurogoals_bot`).
+- `/` shows `app_env`, `environment`, `branch` and `database_host` (never secret values).
 
-1. Production-only variables: make sure the live `BOT_TOKEN` is ticked for **Production** only.
-2. Add for **Preview** (scope it to the `staging` branch): `BOT_TOKEN` = test bot token,
-   `WEBHOOK_SECRET`, `CRON_SECRET`, `ADMIN_PASSWORD`, `ADMIN_CHAT_ID` (your own id for testing),
-   `CATALOG_ENABLED=on`.
-3. Database: in the Neon integration enable a database branch for preview deployments,
-   or set `DATABASE_URL` for Preview to a Neon branch connection string.
-4. *Settings → Deployment Protection → Protection Bypass for Automation* → generate. Telegram
-   then reaches the protected preview (the bot adds the secret to the webhook URL itself).
-5. After the first staging deploy open
-   `https://<staging-url>/api/setup?key=<staging WEBHOOK_SECRET>`; expect `"environment": "preview"`
-   and `"bot": "@neurogoals_master_bot"`.
+**Staging project settings** (Vercel → neuro-goals-staging → Settings → Environment Variables):
+`BOT_TOKEN` (test bot), `WEBHOOK_SECRET`, `CRON_SECRET`, `ADMIN_PASSWORD`, `ADMIN_CHAT_ID`,
+`CATALOG_ENABLED=on`, `APP_ENV=staging`, plus its **own** Neon database from the Storage tab
+(never connect the live database to it). After a redeploy open
+`https://neuro-goals-staging.vercel.app/api/setup?key=<staging WEBHOOK_SECRET>`.
 
 Tests locally: `pip install pytest httpx && python -m pytest tests`
 (`TEST_DATABASE_URL=postgresql://…` to run them on Postgres).
