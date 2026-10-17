@@ -95,6 +95,16 @@ USER_COLUMNS = [
 ]
 
 
+# Columns added to the cohorts table after it first shipped (structured schedule).
+COHORT_COLUMNS = [
+    ("sessions", "TEXT"),
+    ("timezone", "TEXT"),
+    ("extra_timezone", "TEXT"),
+    ("time_note", "TEXT"),
+]
+MIGRATIONS = [("users", USER_COLUMNS), ("cohorts", COHORT_COLUMNS)]
+
+
 def _to_pg(sql: str) -> str:
     counter = iter(range(1, 1000))
     return re.sub(r"\?", lambda _: f"${next(counter)}", sql)
@@ -131,8 +141,9 @@ class Database:
             )
             for stmt in self.schema:
                 await handle.execute(stmt)
-            for name, kind in USER_COLUMNS:
-                await handle.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {name} {kind}")
+            for table, columns in MIGRATIONS:
+                for name, kind in columns:
+                    await handle.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {kind}")
         else:
             import aiosqlite
 
@@ -140,11 +151,12 @@ class Database:
             handle.row_factory = aiosqlite.Row
             for stmt in self.schema:
                 await handle.execute(stmt)
-            async with handle.execute("PRAGMA table_info(users)") as cur:
-                existing = {row[1] for row in await cur.fetchall()}
-            for name, kind in USER_COLUMNS:
-                if name not in existing:
-                    await handle.execute(f"ALTER TABLE users ADD COLUMN {name} {kind}")
+            for table, columns in MIGRATIONS:
+                async with handle.execute(f"PRAGMA table_info({table})") as cur:
+                    existing = {row[1] for row in await cur.fetchall()}
+                for name, kind in columns:
+                    if name not in existing:
+                        await handle.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
             await handle.commit()
         self._handle, self._loop = handle, loop
         return handle
@@ -338,7 +350,8 @@ class Database:
 
     COURSE_FIELDS = ("title", "summary", "photo", "status", "kind", "price_eur", "price_rub",
                      "methods", "group_link", "sort_order")
-    COHORT_FIELDS = ("course_id", "title", "dates", "time_text", "group_link", "sort_order")
+    COHORT_FIELDS = ("course_id", "title", "dates", "time_text", "group_link", "sort_order",
+                     "sessions", "timezone", "extra_timezone", "time_note")
 
     async def courses_all(self) -> list[dict]:
         return await self.fetch("SELECT * FROM courses ORDER BY sort_order, created_at")

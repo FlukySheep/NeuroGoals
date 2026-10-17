@@ -109,7 +109,69 @@ a{color:var(--accent)}
 .photo img{max-width:220px;max-height:220px;border-radius:10px;border:1px solid var(--line)}
 input[type=password]{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit}
 .sticky{position:sticky;bottom:0;background:linear-gradient(transparent,var(--bg) 30%);padding:20px 0 12px}
+/* forms */
+.field{display:grid;gap:6px;font-size:14px;color:var(--muted);min-width:0}
+.field>span{font-weight:500}
+.field .hint{font-size:13px;font-weight:400}
+.input,select.input,textarea.input{width:100%;min-height:44px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+ background:var(--card);color:var(--ink);font:inherit;font-size:16px;transition:border-color .15s,box-shadow .15s}
+textarea.input{min-height:88px;resize:vertical}
+.input:focus,.btn:focus-visible,select.input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+.input[type=date],.input[type=time]{font-variant-numeric:tabular-nums}
+.affix{position:relative}.affix .input{padding-right:40px}.affix b{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-weight:500}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.section{padding:18px;display:grid;gap:16px;margin-bottom:14px}
+.section>h3{margin:0;font-size:17px}.section>h3+p{margin:-10px 0 0;color:var(--muted);font-size:14px}
+.toggles{display:flex;flex-wrap:wrap;gap:8px}
+.toggle{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--line);border-radius:99px;cursor:pointer;color:var(--ink);font-size:15px;user-select:none}
+.toggle input{accent-color:var(--accent);width:18px;height:18px;margin:0}
+.toggle:has(input:checked){border-color:var(--accent);background:var(--chip)}
+.toggle small{color:var(--muted)}
+.file{display:flex;align-items:center;gap:12px;flex-wrap:wrap;cursor:pointer}
+.file input{display:none}.file-name{color:var(--muted);font-size:14px}
+.file-preview{max-width:200px;max-height:200px;border-radius:10px;border:1px solid var(--line);display:block}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:middle}
+.dot.open{background:#2f9e5b}.dot.waitlist{background:#d49a1a}.dot.closed{background:#b54b2c}.dot.draft{background:var(--muted)}
+.savebar{position:sticky;bottom:0;z-index:5;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;
+ margin:16px -16px 0;padding:12px 16px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--line)}
+.savebar .dirty{color:var(--warn);font-size:14px;visibility:hidden}.savebar.is-dirty .dirty{visibility:visible}
+.icon-btn{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--muted);width:44px;height:44px;border-radius:10px;cursor:pointer;font-size:18px;flex-shrink:0}
+.icon-btn:hover{color:var(--warn);border-color:var(--warn)}
+.flash{transition:opacity .4s}
 """
+
+UI_JS = """<script>
+document.addEventListener('change', e => {
+  const input = e.target;
+  if (input.matches('.file input[type=file]')) {
+    const box = input.closest('.file'), name = box.querySelector('.file-name'), f = input.files[0];
+    name.textContent = f ? f.name : 'Файл не выбран';
+    let img = box.querySelector('img.file-preview');
+    if (f && f.type.startsWith('image/')) {
+      if (!img) { img = document.createElement('img'); img.className = 'file-preview'; box.prepend(img); }
+      img.src = URL.createObjectURL(f);
+    }
+  }
+});
+// Warn before leaving a form with unsaved changes.
+document.querySelectorAll('form[data-guard]').forEach(form => {
+  let dirty = false;
+  const bar = form.querySelector('.savebar');
+  const mark = () => { dirty = true; bar && bar.classList.add('is-dirty'); };
+  form.addEventListener('input', mark); form.addEventListener('change', mark);
+  form.addEventListener('dirty', mark);
+  form.addEventListener('submit', () => { dirty = false; });
+  window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+});
+setTimeout(() => document.querySelectorAll('.flash:not(.err)').forEach(f => f.style.opacity = '0'), 4000);
+</script>"""
+
+
+def file_picker(name: str = "photo", label: str = "Выбрать картинку", current_url: str | None = None) -> str:
+    """Localised file input with an instant preview (the native one says "Choose File")."""
+    preview = f'<img class="file-preview" src="{html.escape(current_url)}" alt="">' if current_url else ""
+    return (f'<label class="file">{preview}<input type="file" name="{name}" accept="image/jpeg,image/png,image/webp">'
+            f'<span class="btn">📷 {html.escape(label)}</span><span class="file-name">Файл не выбран</span></label>')
 
 
 def _page(title: str, body: str, head: str = "") -> HTMLResponse:
@@ -117,7 +179,7 @@ def _page(title: str, body: str, head: str = "") -> HTMLResponse:
         f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><style>{CSS}</style>{head}</head>
-<body><div class="wrap">{body}</div></body></html>"""
+<body><div class="wrap">{body}</div>{UI_JS}</body></html>"""
     )
 
 
@@ -263,7 +325,7 @@ async def edit_page(request: Request) -> Response:
 <input type="hidden" name="html" id="html">
 <h2>Картинка</h2>
 <div class="card photo">{photo_block}
-<div><input type="file" name="photo" accept="image/jpeg,image/png,image/webp">
+<div>{file_picker()}
 <p class="note">JPG/PNG до 4 МБ. Если текст длиннее 1024 символов, картинка придёт отдельным сообщением над текстом.</p>
 {fallback}</div></div>
 <div class="sticky row">

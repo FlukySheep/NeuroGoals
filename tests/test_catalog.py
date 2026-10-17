@@ -27,13 +27,11 @@ def test_neurofinance_is_seeded_once(web, monkeypatch):
     cohorts = web.portal.call(S.db.cohorts_for, catalog.NEUROFINANCE)
     assert [g["id"] for g in cohorts] == ["weekend", "weekday"]  # match users.group_key
     assert cohorts[0]["group_link"] == "https://t.me/+weekend"
-    # Saving a cohort from the form keeps the two-line time (Moscow / Geneva) intact.
-    web.post(f"/admin/courses/{catalog.NEUROFINANCE}/cohorts/weekend",
-             data={"action": "save", "title": cohorts[0]["title"], "dates": cohorts[0]["dates"],
-                   "time_text": t.TIME_TEXT, "group_link": cohorts[0]["group_link"], "sort_order": "0"})
-    assert web.portal.call(S.db.cohort_get, "weekend")["time_text"] == t.TIME_TEXT
-    assert f'<textarea name="time_text" rows="2" style="min-height:0">{t.TIME_TEXT}</textarea>' in \
-        web.get(f"/admin/courses/{catalog.NEUROFINANCE}").text
+    # Seeded with real sessions; the generated text matches what the live bot shows.
+    assert cohorts[0]["dates"] == t.GROUPS["weekend"].dates and cohorts[1]["dates"] == t.GROUPS["weekday"].dates
+    assert cohorts[0]["time_text"] == "12:00–16:00 по Москве\n11:00–15:00 по Женеве\n3–4 часа с перерывом"
+    page = web.get(f"/admin/courses/{catalog.NEUROFINANCE}").text
+    assert page.count('type="date"') >= 8 and 'value="2026-10-10"' in page and 'type="time"' in page
 
     web.post(f"/admin/courses/{catalog.NEUROFINANCE}/delete")
     assert "НейроФинансы" not in web.get("/admin/courses").text  # deletion is respected
@@ -72,12 +70,31 @@ def test_course_lifecycle(web, monkeypatch):
     assert catalog.price_line(course) == "180 €"
     assert web.get("/admin/courses/neuro-love/photo").status_code == 200
 
-    web.post("/admin/courses/neuro-love/cohorts", data={"title": "Весна", "dates": "1 марта", "time_text": "19:00"})
-    cohort = web.portal.call(S.db.cohorts_for, "neuro-love")[0]
-    assert cohort["id"].startswith("neuro-love-") and cohort["title"] == "Весна"
-    web.post(f"/admin/courses/neuro-love/cohorts/{cohort['id']}",
-             data={"action": "save", "title": "Весна 2027", "dates": "1 марта\n3 марта", "sort_order": "0"})
-    assert web.portal.call(S.db.cohort_get, cohort["id"])["dates"] == "1 марта\n3 марта"
+    # Cohorts are built from date/time pickers; wrong input is rejected with a clear message.
+    def cohort(dates, starts, ends, **extra):
+        return {"title": "Весна", "session_date": dates, "session_start": starts, "session_end": ends,
+                "timezone": "Europe/Moscow", "extra_timezone": "", **extra}
+
+    for bad in (cohort(["2027-03-01"], ["19:00"], ["18:00"]), cohort(["2027-03-01"], [""], ["18:00"]),
+                cohort([""], ["19:00"], ["21:00"])):
+        r = web.post("/admin/courses/neuro-love/cohorts", data=bad, follow_redirects=False)
+        assert "err=" in r.headers["location"]
+    assert web.portal.call(S.db.cohorts_for, "neuro-love") == []
+
+    web.post("/admin/courses/neuro-love/cohorts",
+             data=cohort(["2027-03-08", "2027-03-01", ""], ["19:00", "19:00", ""], ["21:00", "21:00", ""]))
+    cohort_row = web.portal.call(S.db.cohorts_for, "neuro-love")[0]
+    assert cohort_row["id"].startswith("neuro-love-") and cohort_row["title"] == "Весна"
+    assert cohort_row["dates"] == "1 марта (пн) — День 1\n8 марта (пн) — День 2"  # sorted, empty row ignored
+    assert cohort_row["time_text"] == "19:00–21:00 по Москве"
+
+    web.post(f"/admin/courses/neuro-love/cohorts/{cohort_row['id']}", data={
+        "action": "save", **cohort(["2027-03-01"], ["19:00"], ["21:00"], extra_timezone="Europe/Zurich",
+                                   time_note="с перерывом", title="Весна 2027")})
+    saved = web.portal.call(S.db.cohort_get, cohort_row["id"])
+    assert saved["title"] == "Весна 2027" and saved["extra_timezone"] == "Europe/Zurich"
+    assert saved["time_text"] == "19:00–21:00 по Москве\n17:00–19:00 по Женеве\nс перерывом"
+    cohort = cohort_row
     # A cohort can't be edited through another course's URL.
     wrong = web.post(f"/admin/courses/{catalog.NEUROFINANCE}/cohorts/{cohort['id']}",
                      data={"action": "delete"}, follow_redirects=False)
@@ -95,3 +112,19 @@ def test_courses_require_login(web, monkeypatch):
     assert web.post("/admin/courses/new", data={"id": "x1", "title": "x"}, follow_redirects=False) \
         .headers["location"] == "/admin/login"
     assert web.get("/admin/courses/neurofinance/photo").status_code == 403
+
+
+def test_seeded_catalog_gets_structured_schedule_once(web, monkeypatch):
+    """Staging was seeded before schedules existed: the old text cohorts get real sessions."""
+    monkeypatch.setenv("CATALOG_ENABLED", "on")
+    _login(web)
+    web.get("/admin/courses")  # seeds
+    from neurofinance.web import S
+
+    async def make_legacy():
+        await S.db.cohort_save("weekend", sessions=None, dates="old text", time_text="old time")
+        await S.db.kv_set(catalog.SCHEDULE_FLAG, "")
+    web.portal.call(make_legacy)
+    web.get(f"/admin/courses/{catalog.NEUROFINANCE}")
+    upgraded = web.portal.call(S.db.cohort_get, "weekend")
+    assert upgraded["dates"] == t.GROUPS["weekend"].dates and upgraded["sessions"]
