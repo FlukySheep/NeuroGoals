@@ -40,6 +40,7 @@ async def to_admin(
     title: str,
     original: Message | None = None,
     reply_markup: InlineKeyboardMarkup | None = None,
+    details: str = "",
 ) -> bool:
     """Send a notification about a user to the admin chat.
 
@@ -49,10 +50,12 @@ async def to_admin(
     if not config.admin_chat_id:
         log.warning("ADMIN_CHAT_ID is not set; dropping notification: %s", title)
         return False
+    if details:
+        details += "\n\n"
     try:
         header = await bot.send_message(
             config.admin_chat_id,
-            f"<b>{title}</b>\n\n{await user_card(db, user_id)}\n\n"
+            f"<b>{title}</b>\n\n{details}{await user_card(db, user_id)}\n\n"
             "<i>Ответьте на это сообщение, чтобы написать пользователю.</i>",
             reply_markup=reply_markup,
         )

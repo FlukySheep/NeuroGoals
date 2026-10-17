@@ -86,6 +86,20 @@ SCHEMA = [
         notified   INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (user_id, course_id)
     )""",
+    # AI consultant interviews: the conversation, and what it recommended.
+    """CREATE TABLE IF NOT EXISTS ai_chats (
+        id          TEXT PRIMARY KEY,
+        user_id     BIGINT NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'active',
+        messages    TEXT,
+        options     TEXT,
+        answers     INTEGER NOT NULL DEFAULT 0,
+        summary     TEXT,
+        proposal    TEXT,
+        busy_until  DOUBLE PRECISION NOT NULL DEFAULT 0,
+        created_at  DOUBLE PRECISION,
+        updated_at  DOUBLE PRECISION
+    )""",
     """CREATE TABLE IF NOT EXISTS fsm (
         k     TEXT PRIMARY KEY,
         state TEXT,
@@ -122,7 +136,15 @@ COHORT_COLUMNS = [
     ("extra_timezone", "TEXT"),
     ("time_note", "TEXT"),
 ]
-COURSE_COLUMNS = [("start_step", "TEXT")]
+COURSE_COLUMNS = [
+    ("start_step", "TEXT"),
+    # Product ecosystem: what kind of product, where it sits on the long-term path,
+    # and the knowledge base the AI consultant reads.
+    ("product_type", "TEXT"),
+    ("stage", "INTEGER NOT NULL DEFAULT 0"),
+    ("knowledge_base", "TEXT"),
+    ("url", "TEXT"),
+]
 MIGRATIONS = [("users", USER_COLUMNS), ("cohorts", COHORT_COLUMNS), ("courses", COURSE_COLUMNS)]
 
 
@@ -370,7 +392,8 @@ class Database:
     # -- course catalog -----------------------------------------------------
 
     COURSE_FIELDS = ("title", "summary", "photo", "status", "kind", "price_eur", "price_rub",
-                     "methods", "group_link", "sort_order", "start_step")
+                     "methods", "group_link", "sort_order", "start_step",
+                     "product_type", "stage", "knowledge_base", "url")
     COHORT_FIELDS = ("course_id", "title", "dates", "time_text", "group_link", "sort_order",
                      "sessions", "timezone", "extra_timezone", "time_note")
 
@@ -455,6 +478,49 @@ class Database:
 
     async def waitlist_for(self, course_id: str) -> list[dict]:
         return await self.fetch("SELECT * FROM waitlist WHERE course_id=? ORDER BY created_at", course_id)
+
+    # -- AI consultant --------------------------------------------------------
+
+    AI_FIELDS = ("status", "messages", "options", "answers", "summary", "proposal")
+
+    async def ai_chat_new(self, user_id: int) -> str:
+        now = time.time()
+        chat_id = f"{user_id}-{int(now * 1000)}"
+        await self.execute(
+            "INSERT INTO ai_chats (id, user_id, status, messages, answers, created_at, updated_at) "
+            "VALUES (?, ?, 'active', '[]', 0, ?, ?)", chat_id, user_id, now, now)
+        return chat_id
+
+    async def ai_chat_get(self, chat_id: str) -> dict | None:
+        return await self.fetchone("SELECT * FROM ai_chats WHERE id=?", chat_id)
+
+    async def ai_chat_current(self, user_id: int) -> dict | None:
+        return await self.fetchone(
+            "SELECT * FROM ai_chats WHERE user_id=? ORDER BY created_at DESC LIMIT 1", user_id)
+
+    async def ai_chat_save(self, chat_id: str, **fields) -> None:
+        fields = {k: v for k, v in fields.items() if k in self.AI_FIELDS}
+        sets = ", ".join(f"{k}=?" for k in fields)
+        await self.execute(f"UPDATE ai_chats SET {sets}, updated_at=? WHERE id=?", *fields.values(), time.time(), chat_id)
+
+    async def ai_chat_claim(self, chat_id: str, seconds: float = 90) -> bool:
+        """One AI call per interview at a time (a double tap or a second message waits its turn)."""
+        now = time.time()
+        return bool(await self.execute(
+            "UPDATE ai_chats SET busy_until=? WHERE id=? AND busy_until<?", now + seconds, chat_id, now))
+
+    async def ai_chat_release(self, chat_id: str) -> None:
+        await self.execute("UPDATE ai_chats SET busy_until=0 WHERE id=?", chat_id)
+
+    async def ai_chats_since(self, user_id: int, since: float) -> int:
+        row = await self.fetchone(
+            "SELECT COUNT(*) AS n FROM ai_chats WHERE user_id=? AND created_at>=?", user_id, since)
+        return int(row["n"]) if row else 0
+
+    async def ai_chats_recent(self, limit: int = 50) -> list[dict]:
+        return await self.fetch(
+            "SELECT a.*, u.full_name, u.username FROM ai_chats a LEFT JOIN users u ON u.user_id=a.user_id "
+            f"WHERE a.answers>0 ORDER BY a.updated_at DESC LIMIT {int(limit)}")
 
     # -- FSM state ----------------------------------------------------------
 

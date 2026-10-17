@@ -109,7 +109,8 @@ def test_designer_template_edit_and_guards(web, monkeypatch):
 
     web.post(f"/admin/courses/{NF}/journey/template")
     page = web.get(f"/admin/courses/{NF}/journey").text
-    assert 'class="mermaid"' in page and "step1 --&gt;|" in page and "act_enroll" in page
+    assert "mermaid" not in page  # no graph: steps are a list with their buttons
+    assert "Понять, подойдёт ли мне → Начнём с вас" in page and "Выбрать группу · 💳" in page
     assert page.count('class="step"') == len(journey.TEMPLATE)
     again = web.post(f"/admin/courses/{NF}/journey/template", follow_redirects=False)
     assert "err=" in again.headers["location"]  # never overwrites existing steps

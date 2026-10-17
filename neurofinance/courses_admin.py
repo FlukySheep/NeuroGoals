@@ -12,6 +12,7 @@ from . import catalog, content, schedule
 from . import texts as t
 from .panel import (
     MAX_PHOTO_BYTES, _authed, _bot, _cfg, _db, _flash, _page, _redirect, _upload_photo, file_picker, nav,
+    products_enabled,
 )
 
 PAGE_CSS = """
@@ -20,6 +21,8 @@ PAGE_CSS = """
 .course:first-child{border-top:0}.course:hover{background:var(--chip)}
 .course .meta{font-size:13px;color:var(--muted);margin-top:2px}
 .status{font-size:13px;color:var(--muted);white-space:nowrap}
+textarea.kb{min-height:320px;font:inherit;line-height:1.5;resize:vertical}
+.badge.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 #summary{min-height:120px;background:var(--card);color:var(--ink)}
 .ql-toolbar.ql-snow,.ql-container.ql-snow{border-color:var(--line)!important}
 .ql-toolbar.ql-snow{border-radius:10px 10px 0 0}.ql-container.ql-snow{border-radius:0 0 10px 10px;font-size:15px}
@@ -94,12 +97,19 @@ document.addEventListener('submit', e => {
 </script>"""
 
 
+KB_MAX = 20000
+KB_HINT = """Что это и для кого. Какие проблемы решает и какой результат даёт.
+Формат, длительность, что внутри (программа, главы, уровни игры).
+Кому НЕ подходит. Что нужно знать или пройти до.
+С какими продуктами сочетается: что лучше до, что после."""
+
+
 def _allowed(request: Request) -> Response | None:
     """Login required, and the catalog must be switched on for this deployment."""
     if not _authed(request):
         return RedirectResponse("/admin/login", status_code=303)
-    if _cfg().catalog == "off":
-        return _redirect("/admin", err="Каталог курсов выключен (CATALOG_ENABLED=off).")
+    if not products_enabled():
+        return _redirect("/admin", err="Каталог продуктов выключен (CATALOG_ENABLED и AI_AGENT = off).")
     return None
 
 
@@ -139,22 +149,27 @@ async def courses_page(request: Request) -> Response:
     rows = []
     for c in await db.courses_all():
         cohorts = await db.cohorts_for(c["id"])
-        info = [catalog.price_line(c), catalog.KINDS.get(c["kind"], c["kind"])]
+        info = [catalog.type_label(c), catalog.price_line(c)]
+        if c.get("stage"):
+            info.append(f"этап {c['stage']}")
         if c["kind"] == "cohort":
             info.append(f"групп: {len(cohorts)}")
+        kb_badge = "" if (c.get("knowledge_base") or "").strip() else ' <span class="badge warn">нет базы знаний</span>'
         rows.append(
-            f'<a class="course" href="/admin/courses/{_esc(c["id"])}"><span><b>{_esc(c["title"])}</b>'
+            f'<a class="course" href="/admin/courses/{_esc(c["id"])}"><span><b>{_esc(c["title"])}</b>{kb_badge}'
             f'<div class="meta">{_esc(" · ".join(info))}</div></span>'
             f'<span class="status"><span class="dot {_esc(c["status"])}"></span>'
             f'{_esc(catalog.STATUSES.get(c["status"], c["status"]))}</span></a>'
         )
-    body = f"""<header><h1>Курсы</h1>{nav("courses")}</header>{_flash(request)}
-<p class="note">Каталог курсов в боте. Черновики видны только здесь.</p>
-<div class="card">{"".join(rows) or '<p class="note" style="padding:16px">Курсов пока нет.</p>'}</div>
-<h2>Новый курс</h2>
+    body = f"""<header><h1>Продукты</h1>{nav("courses")}</header>{_flash(request)}
+<p class="note">Книги, курсы, консультации и игры — экосистема, из которой ИИ-консультант собирает личный путь.
+Черновики видны только здесь. Чем подробнее база знаний продукта, тем точнее рекомендации.</p>
+<div class="card">{"".join(rows) or '<p class="note" style="padding:16px">Продуктов пока нет.</p>'}</div>
+<h2>Новый продукт</h2>
 <form method="post" action="/admin/courses/new" class="card section">
 <div class="grid2">
 <label class="field"><span>Название</span><input class="input" type="text" name="title" required placeholder="Например: НейроОтношения"></label>
+<label class="field"><span>Тип</span><select class="input" name="product_type">{_options(catalog.PRODUCT_TYPES, "group")}</select></label>
 <label class="field"><span>Адрес курса</span><input class="input" type="text" name="id" required
   pattern="[a-z0-9][a-z0-9_\\-]{{1,39}}" placeholder="neuro-relations" autocapitalize="off" spellcheck="false">
   <span class="hint">Латиница, цифры и «-». Будет в ссылке t.me/бот?start=c_адрес</span></label>
@@ -176,9 +191,12 @@ async def course_create(request: Request) -> Response:
     db = _db()
     if await db.course_get(course_id):
         return _redirect("/admin/courses", err="Курс с таким адресом уже есть.")
-    await db.course_save(course_id, title=title, status="draft", kind="cohort",
+    product_type = str(form.get("product_type", "group"))
+    product_type = product_type if product_type in catalog.PRODUCT_TYPES else "group"
+    await db.course_save(course_id, title=title, status="draft", product_type=product_type,
+                         kind="cohort" if product_type == "group" else "open",
                          methods=",".join(t.PAYMENT_METHODS), sort_order=len(await db.courses_all()))
-    return _redirect(f"/admin/courses/{course_id}", msg="Черновик создан. Заполните описание, цены и группы.")
+    return _redirect(f"/admin/courses/{course_id}", msg="Черновик создан. Заполните базу знаний, описание и цену.")
 
 
 # ---------------------------------------------------------------------------
@@ -262,14 +280,14 @@ async def course_page(request: Request) -> Response:
     cohorts = "".join(_cohort_form(cid, g) for g in await db.cohorts_for(c["id"]))
     n_steps = len(await db.steps_for(c["id"]))
     journey_block = f"""<a class="card section" href="/admin/courses/{cid}/journey" style="text-decoration:none;color:var(--ink)">
-<h3>Путь в боте →</h3><p>{f"Шагов: {n_steps}. Схема, тексты и кнопки, которые видит студент." if n_steps else
-"Пока нет — бот покажет карточку курса. Создайте путь или скопируйте путь «НейроФинансов»."}</p></a>"""
+<h3>Путь в боте →</h3><p>{f"Шагов: {n_steps}. Тексты и кнопки, которые видит человек." if n_steps else
+"Пока нет — бот покажет карточку продукта. ИИ может составить путь по базе знаний."}</p></a>"""
     cohort_block = f"""<h2>Группы (потоки)</h2>
 {cohorts or '<p class="note">Групп пока нет — добавьте первую.</p>'}
 <details class="add"{"" if cohorts else " open"}><summary class="btn">＋ Новая группа</summary>
 <div style="margin-top:12px">{_cohort_form(cid, None)}</div></details>"""
 
-    body = f"""<header><h1>{_esc(c["title"])}</h1><a class="btn" href="/admin/courses">← Курсы</a></header>
+    body = f"""<header><h1>{_esc(c["title"])}</h1><a class="btn" href="/admin/courses">← Продукты</a></header>
 {_flash(request)}
 {journey_block}
 <form method="post" enctype="multipart/form-data" id="course" data-guard>
@@ -283,6 +301,16 @@ async def course_page(request: Request) -> Response:
 <div class="field"><span>Короткое описание <span class="hint">— видно в каталоге, до 900 символов</span></span>
 <div id="summary">{content.telegram_to_editor(c["summary"] or "")}</div></div>
 <input type="hidden" name="summary" id="summary_html">
+</div>
+<div class="card section"><h3>Продукт в экосистеме</h3>
+<div class="grid2">
+<label class="field"><span>Тип продукта</span><select class="input" name="product_type">{_options(catalog.PRODUCT_TYPES, c.get("product_type") or "group")}</select></label>
+<label class="field"><span>Этап пути</span><select class="input" name="stage">{_options({str(k): v for k, v in catalog.STAGES.items()}, str(c.get("stage") or 0))}</select></label>
+</div>
+<label class="field"><span>База знаний <span class="hint">— её читает ИИ-консультант, человек её не видит</span></span>
+<textarea class="input kb" name="knowledge_base" maxlength="{KB_MAX}" placeholder="{_esc(KB_HINT)}">{_esc(c.get("knowledge_base"))}</textarea></label>
+<label class="field"><span>Ссылка на продукт <span class="hint">— книга, игра, курс на другой платформе (необязательно)</span></span>
+<input class="input" type="url" name="url" value="{_esc(c.get("url"))}" placeholder="https://…"></label>
 </div>
 <div class="card section"><h3>Цена и оплата</h3><p>0 — эту валюту не принимать.</p>
 <div class="grid2">
@@ -298,7 +326,7 @@ async def course_page(request: Request) -> Response:
 <p class="note" style="margin:0">Ссылка на курс в боте: <code>t.me/&lt;бот&gt;?start=c_{cid}</code></p>
 </div>
 <div class="savebar"><span class="dirty">● Есть несохранённые изменения</span>
-<button class="btn primary">Сохранить курс</button></div>
+<button class="btn primary">Сохранить</button></div>
 </form>
 {cohort_block if c["kind"] == "cohort" else ""}
 <h2>Удаление</h2>
@@ -336,6 +364,13 @@ async def course_save(request: Request) -> Response:
         return _redirect(here, err="Для открытого курса укажите хотя бы одну цену.")
     if status == "open" and not methods:
         return _redirect(here, err="Для открытого курса выберите хотя бы один способ оплаты.")
+    product_type = str(form.get("product_type", c.get("product_type") or "group"))
+    knowledge_base = str(form.get("knowledge_base", "")).replace("\r\n", "\n").strip()
+    if len(knowledge_base) > KB_MAX:
+        return _redirect(here, err=f"База знаний длиннее {KB_MAX} символов.")
+    url = str(form.get("url", "")).strip()
+    if url and not url.startswith("https://"):
+        return _redirect(here, err="Ссылка на продукт должна начинаться с https://")
     summary = content.editor_to_telegram(str(form.get("summary", "")))
     if content.visible_length(summary) > 900:
         return _redirect(here, err="Короткое описание длиннее 900 символов.")
@@ -361,8 +396,11 @@ async def course_save(request: Request) -> Response:
         summary=summary, photo=photo, price_eur=price_eur, price_rub=price_rub,
         methods=",".join(methods), group_link=str(form.get("group_link", "")).strip(),
         sort_order=_int(form.get("sort_order")),
+        product_type=product_type if product_type in catalog.PRODUCT_TYPES else "group",
+        stage=_int(form.get("stage")) if _int(form.get("stage")) in catalog.STAGES else 0,
+        knowledge_base=knowledge_base, url=url,
     )
-    return _redirect(here, msg="Курс сохранён.")
+    return _redirect(here, msg="Сохранено.")
 
 
 # ---------------------------------------------------------------------------

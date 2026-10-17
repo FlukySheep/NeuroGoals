@@ -23,7 +23,7 @@ from starlette.routing import Route
 
 from workbot import web as workbot_web
 
-from . import courses_admin, journey_admin, leads, panel
+from . import ai_admin, courses_admin, journey_admin, leads, panel
 from .app import make_bot, make_dispatcher, send_reminders, setup_profile
 from .config import Config, load_config
 from .db import Database
@@ -76,6 +76,8 @@ async def health(request: Request) -> JSONResponse:
         "branch": env.get("VERCEL_GIT_COMMIT_REF", ""),
         "database_host": host.split(".", 1)[0],
         "catalog_enabled": env.get("CATALOG_ENABLED", "off"),
+        "ai_agent": env.get("AI_AGENT", "off"),
+        "ANTHROPIC_API_KEY": bool(env.get("ANTHROPIC_API_KEY")),
         "BOT_TOKEN": bool(env.get("BOT_TOKEN")),
         "WEBHOOK_SECRET": bool(env.get("WEBHOOK_SECRET")),
         "CRON_SECRET": bool(env.get("CRON_SECRET")),
@@ -230,6 +232,7 @@ _routes = Starlette(
         Route("/api/telegram", telegram, methods=["POST"]),
         Route("/api/cron", cron, methods=["GET", "POST"]),
         Route("/api/setup", setup, methods=["GET"]),
+        *ai_admin.routes,
         *journey_admin.routes,
         *courses_admin.routes,
         *leads.routes,

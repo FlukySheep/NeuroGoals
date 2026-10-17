@@ -52,6 +52,7 @@ The live bot must never break, so new features go through a separate staging cop
 | Telegram bot | @neurogoals_bot | @neurogoals_master_bot (test) |
 | Database | Neon `ep-withered-dawn-…` | its own Neon database (`ep-royal-mouse-…`) |
 | `CATALOG_ENABLED` | `off` | `on` |
+| `AI_AGENT` (needs `ANTHROPIC_API_KEY`) | `off` | `on` |
 | `APP_ENV` | (unset) | `staging` |
 
 **Flow:** work on `staging` → GitHub Actions runs the tests (`.github/workflows/tests.yml`,
@@ -77,6 +78,27 @@ and redeploy. Database changes are additive only (new tables/columns), so older 
 
 Tests locally: `pip install pytest httpx && python -m pytest tests`
 (`TEST_DATABASE_URL=postgresql://…` to run them on Postgres).
+
+## AI consultant and the product ecosystem
+
+Products (`/admin/courses` → «Продукты») are books, group online courses, private online
+consultations, self-paced courses and interactive games. Each product has a **type**, a **stage**
+on the long-term path (1 Знакомство → 2 Основа → 3 Углубление → 4 Сопровождение) and a
+**knowledge base** — free text about its purpose, audience, results, format and how it connects
+to other products. `/admin/ai` holds the **ecosystem direction** (mission, the path, the role of
+each product type, recommendation principles) that frames all products, plus the greeting.
+
+- **In the bot** (`AI_AGENT=admins|on` + `ANTHROPIC_API_KEY`): `/start` offers «Подобрать
+  программу». Claude asks 3–5 adaptive questions (buttons or free text; the count is enforced by
+  the response schema), then proposes a path — start / next / later — with buttons that open
+  each product. The manager chat gets a summary; `/admin/ai` lists every interview with the full
+  conversation. Deep links `?start=c_<id>` still open a product directly.
+- **In the admin**: «✨ Составить путь» on a product's journey page drafts the bot journey from
+  the knowledge base (first screen, short questionnaire, program, format, price, doubts, call to
+  action). Steps are then edited by hand as before; there is no graph any more.
+- Model: `AI_MODEL` (default `claude-opus-5-5`, low effort for the interview), server-side refusal
+  fallback on, one call per interview at a time, at most 5 interviews per person per day.
+  Only products visible to students (open / waitlist) are recommended.
 
 ## Рабочий бот (Trello)
 

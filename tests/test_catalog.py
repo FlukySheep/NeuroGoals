@@ -48,7 +48,7 @@ def test_course_lifecycle(web, monkeypatch):
     assert "err=" in dup.headers["location"]
 
     edit = web.get("/admin/courses/neuro-love").text
-    assert "Черновик" in edit and "Сохранить курс" in edit
+    assert "Черновик" in edit and "Сохранить" in edit
 
     # An open course needs a price and a payment method.
     no_price = web.post("/admin/courses/neuro-love", data={"title": "НейроОтношения", "status": "open",

@@ -26,9 +26,16 @@ class Config:
     media: dict[str, str] = field(default_factory=dict)
     # Course catalog feature switch: "off" (default), "admins" (only ADMIN_IDS see it), "on".
     catalog: str = "off"
+    # AI consultant switch (AI_AGENT): "off" (default), "admins", "on". Needs ANTHROPIC_API_KEY.
+    ai: str = "off"
+    ai_model: str = "claude-opus-5-5"
+    ai_key: bool = False
 
     def catalog_enabled_for(self, user_id: int) -> bool:
         return self.catalog == "on" or (self.catalog == "admins" and user_id in self.admin_ids)
+
+    def ai_enabled_for(self, user_id: int) -> bool:
+        return self.ai_key and (self.ai == "on" or (self.ai == "admins" and user_id in self.admin_ids))
 
     @property
     def manager_url(self) -> str:
@@ -63,6 +70,9 @@ def load_config() -> Config:
         cron_secret=os.getenv("CRON_SECRET", "").strip(),
         public_url=os.getenv("PUBLIC_URL", "").strip().rstrip("/"),
         catalog=os.getenv("CATALOG_ENABLED", "off").strip().lower(),
+        ai=os.getenv("AI_AGENT", "off").strip().lower(),
+        ai_model=os.getenv("AI_MODEL", "").strip() or "claude-opus-5-5",
+        ai_key=bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
         media={
             "portrait": os.getenv("MEDIA_PORTRAIT", "media/portrait.jpg").strip(),
             "program": os.getenv("MEDIA_PROGRAM", "media/program.jpg").strip(),

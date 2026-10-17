@@ -11,7 +11,7 @@ from aiogram.exceptions import TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BotCommand, CallbackQuery, TelegramObject
 
-from . import admin, content, handlers, journey_bot
+from . import admin, agent_bot, content, handlers, journey_bot
 from . import keyboards as kb
 from . import texts as t
 from .config import Config
@@ -57,7 +57,7 @@ def make_dispatcher(db: Database, config: Config) -> Dispatcher:
     dp = Dispatcher(storage=DbStorage(db), db=db, config=config)
     dp.update.outer_middleware(TrackUserMiddleware())
     dp.callback_query.middleware(ResetInputOnClickMiddleware())
-    dp.include_routers(admin.router, journey_bot.router, handlers.router)
+    dp.include_routers(admin.router, agent_bot.router, journey_bot.router, handlers.router)
     return dp
 
 

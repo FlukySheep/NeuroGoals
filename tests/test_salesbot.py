@@ -19,7 +19,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
 from aiogram.types import Chat, File, Message, MessageEntity, MessageId, PhotoSize, Update, User
 
-from neurofinance import admin, content, handlers, journey_bot
+from neurofinance import admin, agent_bot, content, handlers, journey_bot
 from neurofinance import texts as t
 from neurofinance.app import make_dispatcher, send_reminders
 from neurofinance.config import load_config
@@ -28,7 +28,7 @@ from neurofinance.db import Database
 ADMIN_ID = 999
 STUDENT = User(id=42, is_bot=False, first_name="Анна", username="anna")
 ZOE = User(id=ADMIN_ID, is_bot=False, first_name="Zoe", username="ZoeRai")
-TABLES = ("users", "relay", "kv", "content", "fsm", "courses", "cohorts", "journey_steps", "waitlist")
+TABLES = ("users", "relay", "kv", "content", "fsm", "courses", "cohorts", "journey_steps", "waitlist", "ai_chats")
 
 _ids = itertools.count(1000)
 
@@ -91,7 +91,7 @@ def _db_url(tmp_path) -> str:
 
 def _reset_routers():
     # Module-level routers join a new dispatcher in every test.
-    for router in (admin.router, journey_bot.router, handlers.router):
+    for router in (admin.router, agent_bot.router, journey_bot.router, handlers.router):
         router._parent_router = None
 
 
@@ -110,7 +110,8 @@ def env(tmp_path, monkeypatch):
         "CRON_SECRET": "crsec", "ADMIN_PASSWORD": "pw", "GROUP_LINK_WEEKEND": "https://t.me/+weekend",
         "DATABASE_URL": _db_url(tmp_path), "MEDIA_PORTRAIT": "", "MEDIA_PROGRAM": "", "MEDIA_VIDEO_NOTE": "",
     }
-    for key in ("POSTGRES_URL", "VERCEL_ENV", "VERCEL_AUTOMATION_BYPASS_SECRET", "CATALOG_ENABLED", "PUBLIC_URL", "APP_ENV"):
+    for key in ("POSTGRES_URL", "VERCEL_ENV", "VERCEL_AUTOMATION_BYPASS_SECRET", "CATALOG_ENABLED", "PUBLIC_URL", "APP_ENV",
+                "AI_AGENT", "AI_MODEL", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     for key, value in values.items():
         monkeypatch.setenv(key, value)

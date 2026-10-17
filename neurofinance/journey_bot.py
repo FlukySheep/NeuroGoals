@@ -45,13 +45,13 @@ async def open_course(bot: Bot, chat_id: int, db: Database, config: Config, cour
         if step:
             await journey.send_step(bot, chat_id, course["id"], step)
             return
-    lines = [f"<b>{html.escape(course['title'])}</b>"]
+    lines = [f"<b>{html.escape(course['title'])}</b>\n{catalog.type_label(course)}"]
     if course.get("summary"):
         lines.append(course["summary"])
     for g in await db.cohorts_for(course["id"]):
         lines.append(f"<b>{html.escape(g['title'])}</b>\n{html.escape(g['dates'] or '')}\n{html.escape(g['time_text'] or '')}")
     lines.append(f"Стоимость: <b>{catalog.price_line(course)}</b>")
-    buttons = []
+    buttons = [journey.Button("Открыть", "url", course["url"])] if course.get("url") else []
     if course["status"] == "open":
         buttons.append(journey.Button("Записаться", "enroll"))
     elif course["status"] == "waitlist":

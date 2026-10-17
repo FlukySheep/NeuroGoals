@@ -9,17 +9,17 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from . import content, journey
+from . import ai, content, journey
 from .courses_admin import QUILL_HEAD, _allowed, _esc
 from .panel import MAX_PHOTO_BYTES, _bot, _cfg, _db, _flash, _page, _redirect, _upload_photo, file_picker
 
 MAX_VIDEO_BYTES = 4 * 1024 * 1024
 
 PAGE_CSS = """
-.map{overflow:auto;padding:12px;-webkit-overflow-scrolling:touch;position:relative}
-.map svg{height:auto}
-.map.zoomed svg{max-width:none!important;width:auto}
-.map-tools{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 8px}
+.links{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.link{font:13px/1.4 inherit;font-family:inherit;background:var(--chip);border-radius:999px;padding:3px 10px;color:var(--ink)}
+.link.act{background:transparent;border:1px solid var(--line);color:var(--muted)}
+.ai-box textarea{min-height:90px;font:inherit;resize:vertical}
 .step{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:14px 16px;
  border-top:1px solid var(--line);color:var(--ink);text-decoration:none}
 .step:first-child{border-top:0}.step:hover{background:var(--chip)}
@@ -43,22 +43,6 @@ PAGE_CSS = """
  border-radius:8px;padding:8px;font-size:14px}
 """
 
-MERMAID_HEAD = """<script type="module">
-import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
-const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-mermaid.initialize({startOnLoad: true, securityLevel: 'loose', theme: dark ? 'dark' : 'neutral',
-  flowchart: {htmlLabels: true, curve: 'basis', useMaxWidth: true}});
-</script>"""
-
-
-def _m(text: str, limit: int = 38) -> str:
-    """Text safe inside a Mermaid quoted label."""
-    text = " ".join(text.split())
-    if len(text) > limit:
-        text = text[: limit - 1] + "…"
-    return html.escape(text, quote=False).replace('"', "#quot;")
-
-
 def reachable(steps: list[dict], start: str | None) -> set[str]:
     links = {s["key"]: [b.target for b in journey.load_buttons(s["buttons"]) if b.action == "goto"] for s in steps}
     seen, todo = set(), [start] if start else []
@@ -69,38 +53,6 @@ def reachable(steps: list[dict], start: str | None) -> set[str]:
         seen.add(key)
         todo.extend(links[key])
     return seen
-
-
-def mermaid_map(course_id: str, steps: list[dict], start: str | None) -> str:
-    lines = ["flowchart TD"]
-    used_actions = set()
-    ok = reachable(steps, start)
-    for s in steps:
-        key = s["key"]
-        lines.append(f'  {key}["{_m(s["title"])}"]')
-        lines.append(f'  click {key} href "/admin/courses/{course_id}/journey/{key}"')
-        if key == start:
-            lines.append(f"  class {key} start")
-        elif key not in ok:
-            lines.append(f"  class {key} orphan")
-        for b in journey.load_buttons(s["buttons"]):
-            label = _m(b.label, 24)
-            if b.action == "goto":
-                lines.append(f'  {key} -->|"{label}"| {b.target}')
-            else:
-                node = f"act_{b.action}"
-                used_actions.add(b.action)
-                lines.append(f'  {key} -.->|"{label}"| {node}')
-    for action in sorted(used_actions):
-        name, icon = journey.ACTIONS[action]
-        lines.append(f'  act_{action}(["{icon} {_m(name)}"])')
-        lines.append(f"  class act_{action} action")
-    lines += [
-        "  classDef start stroke:#2f9e5b,stroke-width:3px",
-        "  classDef orphan stroke-dasharray:5 4,opacity:.7",
-        "  classDef action fill:transparent,stroke-dasharray:3 3",
-    ]
-    return "\n".join(lines)
 
 
 def _text_preview(step: dict, limit: int = 90) -> str:
@@ -125,9 +77,14 @@ async def journey_page(request: Request) -> Response:
     start = c.get("start_step") if c.get("start_step") in {s["key"] for s in steps} else None
     ok = reachable(steps, start)
 
+    titles = {s["key"]: s["title"] for s in steps}
     rows = []
     for s in steps:
         buttons = journey.load_buttons(s["buttons"])
+        chips = "".join(
+            f'<span class="link">{_esc(b.label)} → {_esc(titles.get(b.target, b.target))}</span>' if b.action == "goto"
+            else f'<span class="link act">{_esc(b.label)} · {journey.ACTIONS[b.action][1]} {_esc(journey.ACTIONS[b.action][0])}</span>'
+            for b in buttons)
         badges = []
         if s["key"] == start:
             badges.append('<span class="badge on">старт</span>')
@@ -137,43 +94,80 @@ async def journey_page(request: Request) -> Response:
             badges.append('<span class="badge">фото</span>')
         if s.get("video_note"):
             badges.append('<span class="badge">кружочек</span>')
-        meta = f"кнопок: {len(buttons)}" + (" · " + _esc(_text_preview(s)) if s["html"] else "")
+        meta = _esc(_text_preview(s)) if s["html"] else "Текста пока нет"
         rows.append(f'<a class="step" href="/admin/courses/{cid}/journey/{_esc(s["key"])}"><span><b>{_esc(s["title"])}</b>'
-                    f'<div class="meta">{meta}</div></span><span class="badges">{"".join(badges)}</span></a>')
+                    f'<div class="meta">{meta}</div><div class="links">{chips}</div></span>'
+                    f'<span class="badges">{"".join(badges)}</span></a>')
 
     if steps:
         start_options = "".join(
             f'<option value="{_esc(s["key"])}"{" selected" if s["key"] == start else ""}>{_esc(s["title"])}</option>'
             for s in steps)
-        map_block = f"""<div class="map-tools"><span class="note" style="margin:0">Нажмите на шаг на схеме, чтобы его изменить.
-Пунктир — шаг, до которого не ведёт ни одна кнопка.</span>
-<button type="button" class="btn" onclick="const m=document.querySelector('.map');m.classList.toggle('zoomed');
-this.textContent=m.classList.contains('zoomed')?'Целиком':'🔍 Крупнее'">🔍 Крупнее</button></div>
-<div class="card map"><pre class="mermaid">{_esc(mermaid_map(c["id"], steps, start))}</pre></div>"""
         settings = f"""<form method="post" action="/admin/courses/{cid}/journey/start" class="card section">
-<label class="field"><span>Первый шаг — с него начинается курс</span>
+<label class="field"><span>Первый шаг — с него начинается путь</span>
 <select class="input" name="start" onchange="this.form.submit()">{start_options}</select></label>
 <p class="note" style="margin:0">Проверить в боте: откройте <code>t.me/&lt;бот&gt;?start=c_{cid}</code></p></form>"""
         template = ""
     else:
-        map_block = '<p class="note">Шагов пока нет.</p>'
         settings = ""
         template = f"""<form method="post" action="/admin/courses/{cid}/journey/template" class="card section">
-<h3>Начать с шаблона</h3><p>Скопировать путь «НейроФинансов»: все тексты, фото, кружочек и кнопки. Потом всё можно изменить.</p>
-<div><button class="btn primary">Скопировать путь «НейроФинансов»</button></div></form>"""
+<h3>Или скопировать шаблон</h3><p>Путь «НейроФинансов»: все тексты, фото, кружочек и кнопки. Потом всё можно изменить.</p>
+<div><button class="btn">Скопировать путь «НейроФинансов»</button></div></form>"""
+    if not _cfg().ai_key:
+        ai_block = ('<div class="card section"><h3>✨ Путь с помощью ИИ</h3><p>Чтобы ИИ составлял путь по базе знаний, '
+                    'добавьте ANTHROPIC_API_KEY в настройки проекта Vercel.</p></div>')
+    elif not (c.get("knowledge_base") or "").strip():
+        ai_block = (f'<div class="card section"><h3>✨ Путь с помощью ИИ</h3><p>Сначала заполните '
+                    f'<a href="/admin/courses/{cid}">базу знаний продукта</a> — ИИ строит путь по ней.</p></div>')
+    else:
+        replace = ('<label class="toggle"><input type="checkbox" name="replace" value="1" required>'
+                   'Заменить текущие шаги (их тексты и кнопки пропадут)</label>') if steps else ""
+        ai_block = f"""<form method="post" action="/admin/courses/{cid}/journey/ai" class="card section ai-box"
+ onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='ИИ составляет путь… до 3 минут'">
+<h3>✨ Составить путь с ИИ</h3>
+<p>ИИ прочитает базу знаний и составит черновик: первый экран, короткую анкету с вариантами ответов,
+программу, формат и цену, ответы на сомнения и запись. Всё можно поправить вручную.</p>
+<label class="field"><span>Пожелания <span class="hint">(необязательно)</span></span>
+<textarea class="input" name="wishes" maxlength="2000" placeholder="Например: 6–8 шагов, больше про результат, тон — дружеский"></textarea></label>
+{replace}<div><button class="btn primary">✨ Составить путь</button></div></form>"""
 
-    body = f"""<header><h1>Путь: {_esc(c["title"])}</h1><a class="btn" href="/admin/courses/{cid}">← Курс</a></header>
+    body = f"""<header><h1>Путь: {_esc(c["title"])}</h1><a class="btn" href="/admin/courses/{cid}">← Продукт</a></header>
 {_flash(request)}
 <p class="note">Путь — это сообщения, которые бот показывает по шагам. Каждая кнопка ведёт на другой шаг
 или запускает действие: выбор группы и оплату, лист ожидания, вопрос менеджеру…</p>
-{template}{map_block}{settings}
+{ai_block if not steps else ""}{template}{settings}
 <h2>Шаги ({len(steps)})</h2>
 <div class="card">{"".join(rows) or '<p class="note" style="padding:16px">Пусто.</p>'}</div>
 <form method="post" action="/admin/courses/{cid}/journey/new" class="card section" style="margin-top:14px">
 <div class="grid2"><label class="field"><span>Новый шаг</span>
 <input class="input" type="text" name="title" required maxlength="80" placeholder="Например: Отзывы участников"></label></div>
-<div><button class="btn">＋ Добавить шаг</button></div></form>"""
-    return _page(f"Путь: {c['title']}", body, MERMAID_HEAD + f"<style>{PAGE_CSS}</style>")
+<div><button class="btn">＋ Добавить шаг</button></div></form>
+{ai_block if steps else ""}"""
+    return _page(f"Путь: {c['title']}", body, f"<style>{PAGE_CSS}</style>")
+
+
+async def journey_ai(request: Request) -> Response:
+    if (denied := _allowed(request)) is not None:
+        return denied
+    db = _db()
+    course_id = request.path_params["course_id"]
+    here = f"/admin/courses/{course_id}/journey"
+    c = await db.course_get(course_id)
+    if c is None:
+        return _redirect("/admin/courses", err="Курс не найден.")
+    if not _cfg().ai_key:
+        return _redirect(here, err="ANTHROPIC_API_KEY не настроен.")
+    if not (c.get("knowledge_base") or "").strip():
+        return _redirect(here, err="Сначала заполните базу знаний продукта.")
+    form = await request.form()
+    if await db.steps_for(course_id) and not form.get("replace"):
+        return _redirect(here, err="У продукта уже есть шаги — отметьте «Заменить текущие шаги».")
+    try:
+        steps, start = await ai.draft_journey(db, _cfg(), c, str(form.get("wishes", "")))
+    except ai.AIError as exc:
+        return _redirect(here, err=f"ИИ не смог составить путь ({exc}). Попробуйте ещё раз.")
+    await ai.save_journey(db, course_id, steps, start)
+    return _redirect(here, msg=f"Черновик готов, шагов: {len(steps)}. Проверьте тексты и кнопки.")
 
 
 async def journey_template(request: Request) -> Response:
@@ -454,6 +448,7 @@ routes = [
     Route("/admin/courses/{course_id}/journey", journey_page, methods=["GET"]),
     Route("/admin/courses/{course_id}/journey/template", journey_template, methods=["POST"]),
     Route("/admin/courses/{course_id}/journey/new", journey_new_step, methods=["POST"]),
+    Route("/admin/courses/{course_id}/journey/ai", journey_ai, methods=["POST"]),
     Route("/admin/courses/{course_id}/journey/start", journey_set_start, methods=["POST"]),
     Route("/admin/courses/{course_id}/journey/{key}", step_page, methods=["GET"]),
     Route("/admin/courses/{course_id}/journey/{key}", step_save, methods=["POST"]),

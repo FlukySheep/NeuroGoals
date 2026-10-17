@@ -83,7 +83,12 @@ async def cmd_start(
     # t.me/<bot>?start=instagram -> the lead's source (first touch is kept).
     if command.args and SOURCE_RE.match(command.args):
         await db.set_source_once(message.from_user.id, command.args.lower())
-    if config.catalog_enabled_for(message.from_user.id):
+    deep_link = bool(command.args and command.args.startswith("c_"))
+    if config.ai_enabled_for(message.from_user.id) and not deep_link:
+        from . import agent_bot
+        if await agent_bot.start(bot, message.chat.id, db, config):
+            return
+    if config.catalog_enabled_for(message.from_user.id) or (deep_link and config.ai_enabled_for(message.from_user.id)):
         from . import journey_bot
         if await journey_bot.start(bot, message.chat.id, db, config, command.args):
             return
