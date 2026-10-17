@@ -83,6 +83,10 @@ async def cmd_start(
     # t.me/<bot>?start=instagram -> the lead's source (first touch is kept).
     if command.args and SOURCE_RE.match(command.args):
         await db.set_source_once(message.from_user.id, command.args.lower())
+    if config.catalog_enabled_for(message.from_user.id):
+        from . import journey_bot
+        if await journey_bot.start(bot, message.chat.id, db, config, command.args):
+            return
     await screens.step1(bot, message.chat.id, db, config)
 
 

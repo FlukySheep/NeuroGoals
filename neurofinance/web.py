@@ -23,7 +23,7 @@ from starlette.routing import Route
 
 from workbot import web as workbot_web
 
-from . import courses_admin, leads, panel
+from . import courses_admin, journey_admin, leads, panel
 from .app import make_bot, make_dispatcher, send_reminders, setup_profile
 from .config import Config, load_config
 from .db import Database
@@ -230,6 +230,7 @@ _routes = Starlette(
         Route("/api/telegram", telegram, methods=["POST"]),
         Route("/api/cron", cron, methods=["GET", "POST"]),
         Route("/api/setup", setup, methods=["GET"]),
+        *journey_admin.routes,
         *courses_admin.routes,
         *leads.routes,
         *panel.routes,

@@ -19,7 +19,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
 from aiogram.types import Chat, File, Message, MessageEntity, MessageId, PhotoSize, Update, User
 
-from neurofinance import admin, content, handlers
+from neurofinance import admin, content, handlers, journey_bot
 from neurofinance import texts as t
 from neurofinance.app import make_dispatcher, send_reminders
 from neurofinance.config import load_config
@@ -28,7 +28,7 @@ from neurofinance.db import Database
 ADMIN_ID = 999
 STUDENT = User(id=42, is_bot=False, first_name="Анна", username="anna")
 ZOE = User(id=ADMIN_ID, is_bot=False, first_name="Zoe", username="ZoeRai")
-TABLES = ("users", "relay", "kv", "content", "fsm")
+TABLES = ("users", "relay", "kv", "content", "fsm", "courses", "cohorts", "journey_steps", "waitlist")
 
 _ids = itertools.count(1000)
 
@@ -91,7 +91,7 @@ def _db_url(tmp_path) -> str:
 
 def _reset_routers():
     # Module-level routers join a new dispatcher in every test.
-    for router in (admin.router, handlers.router):
+    for router in (admin.router, journey_bot.router, handlers.router):
         router._parent_router = None
 
 

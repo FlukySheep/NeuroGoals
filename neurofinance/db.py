@@ -66,6 +66,26 @@ SCHEMA = [
         group_link  TEXT,
         sort_order  INTEGER NOT NULL DEFAULT 0
     )""",
+    # Journey designer: the steps of a course's conversation.
+    """CREATE TABLE IF NOT EXISTS journey_steps (
+        id          TEXT PRIMARY KEY,
+        course_id   TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        title       TEXT NOT NULL,
+        html        TEXT,
+        photo       TEXT,
+        video_note  TEXT,
+        buttons     TEXT,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        updated_at  DOUBLE PRECISION
+    )""",
+    """CREATE TABLE IF NOT EXISTS waitlist (
+        user_id    BIGINT NOT NULL,
+        course_id  TEXT NOT NULL,
+        created_at DOUBLE PRECISION,
+        notified   INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, course_id)
+    )""",
     """CREATE TABLE IF NOT EXISTS fsm (
         k     TEXT PRIMARY KEY,
         state TEXT,
@@ -102,7 +122,8 @@ COHORT_COLUMNS = [
     ("extra_timezone", "TEXT"),
     ("time_note", "TEXT"),
 ]
-MIGRATIONS = [("users", USER_COLUMNS), ("cohorts", COHORT_COLUMNS)]
+COURSE_COLUMNS = [("start_step", "TEXT")]
+MIGRATIONS = [("users", USER_COLUMNS), ("cohorts", COHORT_COLUMNS), ("courses", COURSE_COLUMNS)]
 
 
 def _to_pg(sql: str) -> str:
@@ -349,7 +370,7 @@ class Database:
     # -- course catalog -----------------------------------------------------
 
     COURSE_FIELDS = ("title", "summary", "photo", "status", "kind", "price_eur", "price_rub",
-                     "methods", "group_link", "sort_order")
+                     "methods", "group_link", "sort_order", "start_step")
     COHORT_FIELDS = ("course_id", "title", "dates", "time_text", "group_link", "sort_order",
                      "sessions", "timezone", "extra_timezone", "time_note")
 
@@ -373,6 +394,7 @@ class Database:
             await self.execute(f"UPDATE courses SET {sets}, updated_at=? WHERE id=?", *fields.values(), now, course_id)
 
     async def course_delete(self, course_id: str) -> None:
+        await self.execute("DELETE FROM journey_steps WHERE course_id=?", course_id)
         await self.execute("DELETE FROM cohorts WHERE course_id=?", course_id)
         await self.execute("DELETE FROM courses WHERE id=?", course_id)
 
@@ -396,6 +418,43 @@ class Database:
 
     async def cohort_delete(self, cohort_id: str) -> None:
         await self.execute("DELETE FROM cohorts WHERE id=?", cohort_id)
+
+    # -- journey steps --------------------------------------------------------
+
+    STEP_FIELDS = ("title", "html", "photo", "video_note", "buttons", "sort_order")
+
+    async def steps_for(self, course_id: str) -> list[dict]:
+        return await self.fetch(
+            "SELECT * FROM journey_steps WHERE course_id=? ORDER BY sort_order, key", course_id)
+
+    async def step_get(self, course_id: str, key: str) -> dict | None:
+        return await self.fetchone("SELECT * FROM journey_steps WHERE id=?", f"{course_id}/{key}")
+
+    async def step_save(self, course_id: str, key: str, **fields) -> None:
+        fields = {k: v for k, v in fields.items() if k in self.STEP_FIELDS}
+        now = time.time()
+        if await self.step_get(course_id, key) is None:
+            cols = ["id", "course_id", "key", "updated_at", *fields]
+            await self.execute(
+                f"INSERT INTO journey_steps ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                f"{course_id}/{key}", course_id, key, now, *fields.values(),
+            )
+        elif fields:
+            sets = ", ".join(f"{k}=?" for k in fields)
+            await self.execute(f"UPDATE journey_steps SET {sets}, updated_at=? WHERE id=?",
+                               *fields.values(), now, f"{course_id}/{key}")
+
+    async def step_delete(self, course_id: str, key: str) -> None:
+        await self.execute("DELETE FROM journey_steps WHERE id=?", f"{course_id}/{key}")
+
+    async def waitlist_add(self, user_id: int, course_id: str) -> bool:
+        """True if the user was added now (False if already on the list)."""
+        return bool(await self.execute(
+            "INSERT INTO waitlist (user_id, course_id, created_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id, course_id) DO NOTHING", user_id, course_id, time.time()))
+
+    async def waitlist_for(self, course_id: str) -> list[dict]:
+        return await self.fetch("SELECT * FROM waitlist WHERE course_id=? ORDER BY created_at", course_id)
 
     # -- FSM state ----------------------------------------------------------
 

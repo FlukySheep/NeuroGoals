@@ -260,6 +260,10 @@ async def course_page(request: Request) -> Response:
     remove = ('<label class="toggle"><input type="checkbox" name="remove_photo" value="1">Убрать обложку</label>'
               if c["photo"] else "")
     cohorts = "".join(_cohort_form(cid, g) for g in await db.cohorts_for(c["id"]))
+    n_steps = len(await db.steps_for(c["id"]))
+    journey_block = f"""<a class="card section" href="/admin/courses/{cid}/journey" style="text-decoration:none;color:var(--ink)">
+<h3>Путь в боте →</h3><p>{f"Шагов: {n_steps}. Схема, тексты и кнопки, которые видит студент." if n_steps else
+"Пока нет — бот покажет карточку курса. Создайте путь или скопируйте путь «НейроФинансов»."}</p></a>"""
     cohort_block = f"""<h2>Группы (потоки)</h2>
 {cohorts or '<p class="note">Групп пока нет — добавьте первую.</p>'}
 <details class="add"{"" if cohorts else " open"}><summary class="btn">＋ Новая группа</summary>
@@ -267,6 +271,7 @@ async def course_page(request: Request) -> Response:
 
     body = f"""<header><h1>{_esc(c["title"])}</h1><a class="btn" href="/admin/courses">← Курсы</a></header>
 {_flash(request)}
+{journey_block}
 <form method="post" enctype="multipart/form-data" id="course" data-guard>
 <div class="card section"><h3>Основное</h3>
 <div class="grid2">
