@@ -30,7 +30,8 @@ class Config:
     # Provider (AI_PROVIDER): "openai" (needs OPENAI_API_KEY) or "anthropic" (needs ANTHROPIC_API_KEY).
     ai: str = "off"
     ai_provider: str = "openai"
-    ai_model: str = "gpt-5"
+    ai_model: str = "gpt-5"  # journey drafts in the admin (quality matters, nobody waits in a chat)
+    ai_chat_model: str = "gpt-5-mini"  # the interview in the bot (speed matters)
     ai_key: bool = False
 
     def catalog_enabled_for(self, user_id: int) -> bool:
@@ -45,6 +46,8 @@ class Config:
 
 
 DEFAULT_MODELS = {"openai": "gpt-5", "anthropic": "claude-opus-5-5"}
+# Claude: the interview uses AI_MODEL unless AI_CHAT_MODEL is set.
+DEFAULT_CHAT_MODELS = {"openai": "gpt-5-mini", "anthropic": ""}
 KEY_NAMES = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
 
 
@@ -88,6 +91,8 @@ def load_config() -> Config:
         ai=os.getenv("AI_AGENT", "off").strip().lower(),
         ai_provider=provider,
         ai_model=os.getenv("AI_MODEL", "").strip() or DEFAULT_MODELS[provider],
+        ai_chat_model=(os.getenv("AI_CHAT_MODEL", "").strip() or DEFAULT_CHAT_MODELS[provider]
+                       or os.getenv("AI_MODEL", "").strip() or DEFAULT_MODELS[provider]),
         ai_key=bool(os.getenv(KEY_NAMES[provider], "").strip()),
         media={
             "portrait": os.getenv("MEDIA_PORTRAIT", "media/portrait.jpg").strip(),

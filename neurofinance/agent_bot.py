@@ -1,5 +1,6 @@
 """Bot side of the AI consultant: a short interview at /start, then a personal path through the products."""
 
+import asyncio
 import html
 import json
 import logging
@@ -30,6 +31,8 @@ DEFAULT_GREETING = (
     "и в каком порядке их лучше проходить. Это займёт пару минут."
 )
 THINKING = "Секунду, я ещё думаю над предыдущим ответом…"
+PLACEHOLDER_FIRST = "💭 Готовлю первый вопрос…"
+PLACEHOLDER = "💭 Думаю над вашим ответом…"
 FAILED = ("Не получилось ответить — попробуйте ещё раз чуть позже. "
           "А пока можно посмотреть все программы или написать менеджеру.")
 LIMIT = "Сегодня вы уже несколько раз проходили подбор. Посмотрите все программы или напишите менеджеру."
@@ -72,13 +75,37 @@ async def start(bot: Bot, chat_id: int, db: Database, config: Config) -> bool:
     return True
 
 
+async def _keep_typing(bot: Bot, chat_id: int) -> None:
+    """Telegram shows "typing…" for ~5 s; repeat it until the answer is ready."""
+    try:
+        while True:
+            await bot.send_chat_action(chat_id, ChatAction.TYPING)
+            await asyncio.sleep(4)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        pass
+
+
+async def _deliver(bot: Bot, chat_id: int, placeholder: Message | None, text: str,
+                   markup: InlineKeyboardMarkup | None) -> None:
+    """Turn the "thinking…" message into the answer (or send it anew if editing fails)."""
+    if placeholder is not None:
+        try:
+            await bot.edit_message_text(text, chat_id=chat_id, message_id=placeholder.message_id, reply_markup=markup)
+            return
+        except Exception:
+            log.debug("Could not edit the placeholder; sending a new message", exc_info=True)
+    await bot.send_message(chat_id, text, reply_markup=markup)
+
+
 async def _send_reply(bot: Bot, chat_id: int, db: Database, config: Config, user_id: int,
-                      reply: dict, state: FSMContext) -> None:
+                      reply: dict, state: FSMContext, placeholder: Message | None = None) -> None:
     text = html.escape(reply["message"])
     if reply["kind"] == "question":
         rows = [_btn(o, f"ai:o:{i}") for i, o in enumerate(reply["options"])]
-        await bot.send_message(chat_id, text + "\n\n<i>Выберите вариант или напишите своими словами.</i>",
-                               reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None)
+        await _deliver(bot, chat_id, placeholder, text + "\n\n<i>Выберите вариант или напишите своими словами.</i>",
+                       InlineKeyboardMarkup(inline_keyboard=rows) if rows else None)
         await state.set_state(Interview.answer)
         return
 
@@ -87,7 +114,7 @@ async def _send_reply(bot: Bot, chat_id: int, db: Database, config: Config, user
     rows = [_btn(f"{ROLE_ICONS[r['role']]} {titles.get(r['product_id'], r['product_id'])}", f"jc:{r['product_id']}")
             for r in reply["recommendations"]]
     rows += [_btn("💬 Обсудить с Зоей", "ai:manager"), _btn("🔄 Пройти подбор заново", "ai:go")]
-    await bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    await _deliver(bot, chat_id, placeholder, text, InlineKeyboardMarkup(inline_keyboard=rows))
     path = "\n".join(f"{ROLE_ICONS[r['role']]} {html.escape(titles.get(r['product_id'], r['product_id']))}"
                      for r in reply["recommendations"]) or "— ничего не подошло"
     summary = html.escape(reply.get("summary") or "")
@@ -105,16 +132,23 @@ async def _advance(bot: Bot, chat_id: int, user_id: int, db: Database, config: C
     if not await db.ai_chat_claim(chat["id"]):
         await bot.send_message(chat_id, THINKING)
         return
+    # Feedback first: the person sees at once that the answer is coming.
+    placeholder = None
     try:
-        await bot.send_chat_action(chat_id, ChatAction.TYPING)
+        placeholder = await bot.send_message(chat_id, PLACEHOLDER_FIRST if answer is None else PLACEHOLDER)
+    except Exception:
+        log.warning("Could not send the thinking message", exc_info=True)
+    typing = asyncio.create_task(_keep_typing(bot, chat_id))
+    try:
         reply = await ai.interview_turn(db, config, chat, await _products(db, config, user_id), answer)
     except ai.AIError as exc:
         log.warning("AI consultant failed for %s: %s", user_id, exc)
-        await bot.send_message(chat_id, FAILED, reply_markup=_fallback_kb(config))
+        await _deliver(bot, chat_id, placeholder, FAILED, _fallback_kb(config))
         return
     finally:
+        typing.cancel()
         await db.ai_chat_release(chat["id"])
-    await _send_reply(bot, chat_id, db, config, user_id, reply, state)
+    await _send_reply(bot, chat_id, db, config, user_id, reply, state, placeholder)
 
 
 @router.callback_query(F.data == "ai:go")

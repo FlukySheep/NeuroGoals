@@ -8,6 +8,7 @@ import html
 import json
 import logging
 import re
+import time
 
 from . import catalog, journey
 from .config import Config
@@ -30,31 +31,50 @@ class AIError(Exception):
 
 
 async def complete(config: Config, system: str, messages: list[dict], schema: dict, *,
-                   effort: str, max_tokens: int, timeout: float) -> dict:
-    """One model call whose answer is JSON matching `schema` (effort: "low" | "medium")."""
-    if config.ai_provider == "anthropic":
-        return await _complete_claude(config, system, messages, schema, effort, max_tokens, timeout)
-    return await _complete_openai(config, system, messages, schema, effort, max_tokens, timeout)
+                   effort: str, max_tokens: int, timeout: float, model: str | None = None,
+                   purpose: str = "chat") -> dict:
+    """One model call whose answer is JSON matching `schema`.
+
+    effort: "minimal" (fastest) | "low" | "medium". purpose names the call in logs and
+    keeps calls with the same (cacheable) system prompt together.
+    """
+    model = model or config.ai_model
+    started = time.monotonic()
+    try:
+        if config.ai_provider == "anthropic":
+            return await _complete_claude(model, system, messages, schema, effort, max_tokens, timeout)
+        return await _complete_openai(model, system, messages, schema, effort, max_tokens, timeout, purpose)
+    finally:
+        log.info("AI %s: %s %s effort=%s took %.1fs", purpose, config.ai_provider, model, effort,
+                 time.monotonic() - started)
 
 
 def _is_reasoning_model(model: str) -> bool:
     return model.startswith(("gpt-5", "o1", "o3", "o4"))
 
 
-async def _complete_openai(config: Config, system: str, messages: list[dict], schema: dict,
-                           effort: str, max_tokens: int, timeout: float) -> dict:
+def _openai_effort(model: str, effort: str) -> dict:
+    if not _is_reasoning_model(model):
+        return {}
+    if effort == "minimal" and not model.startswith("gpt-5"):
+        effort = "low"  # o-series models have no "minimal"
+    return {"reasoning_effort": effort}
+
+
+async def _complete_openai(model: str, system: str, messages: list[dict], schema: dict,
+                           effort: str, max_tokens: int, timeout: float, purpose: str) -> dict:
     import openai
 
-    extra = {"reasoning_effort": effort} if _is_reasoning_model(config.ai_model) else {}
     try:
         async with openai.AsyncOpenAI(timeout=timeout, max_retries=1) as client:
             response = await client.chat.completions.create(
-                model=config.ai_model,
+                model=model,
                 messages=[{"role": "system", "content": system}, *messages],
                 response_format={"type": "json_schema",
                                  "json_schema": {"name": "reply", "strict": True, "schema": schema}},
                 max_completion_tokens=max_tokens,
-                **extra,
+                prompt_cache_key=f"neurofinance-{purpose}",
+                **_openai_effort(model, effort),
             )
     except openai.APIStatusError as exc:
         log.error("OpenAI API error %s: %s", exc.status_code, exc.message)
@@ -65,6 +85,11 @@ async def _complete_openai(config: Config, system: str, messages: list[dict], sc
     except openai.OpenAIError as exc:  # e.g. missing key
         log.error("OpenAI client error: %s", exc)
         raise AIError("client") from exc
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        cached = getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", 0)
+        log.info("AI usage: prompt=%s (cached %s) completion=%s", usage.prompt_tokens, cached,
+                 usage.completion_tokens)
     choice = response.choices[0]
     if choice.message.refusal:
         raise AIError("refusal")
@@ -76,17 +101,18 @@ async def _complete_openai(config: Config, system: str, messages: list[dict], sc
         raise AIError("invalid JSON") from exc
 
 
-async def _complete_claude(config: Config, system: str, messages: list[dict], schema: dict,
+async def _complete_claude(model: str, system: str, messages: list[dict], schema: dict,
                            effort: str, max_tokens: int, timeout: float) -> dict:
     import anthropic
 
+    effort = "low" if effort == "minimal" else effort
     extra = {}
-    if config.ai_model in FALLBACK_MODELS:
+    if model in FALLBACK_MODELS:
         extra = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
     try:
         async with anthropic.AsyncAnthropic(timeout=timeout, max_retries=1) as client:
             async with client.beta.messages.stream(
-                model=config.ai_model,
+                model=model,
                 max_tokens=max_tokens,
                 system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                 messages=messages,
@@ -243,7 +269,8 @@ async def interview_turn(db: Database, config: Config, chat: dict, courses: list
     ids = [c["id"] for c in courses]
     reply = await complete(config, await interview_system(db, courses), messages,
                            interview_schema(_kinds_for(answers), ids),
-                           effort="low", max_tokens=8000, timeout=60)
+                           model=config.ai_chat_model, effort="minimal", max_tokens=4000, timeout=45,
+                           purpose="interview")
 
     kind = reply.get("kind")
     message = str(reply.get("message") or "").strip()
@@ -407,7 +434,7 @@ async def draft_journey(db: Database, config: Config, course: dict, wishes: str)
     if wishes.strip():
         prompt += f"\n\n## Пожелания автора\n{wishes.strip()[:2000]}"
     raw = await complete(config, system, [{"role": "user", "content": prompt}], JOURNEY_SCHEMA,
-                         effort="medium", max_tokens=32000, timeout=240)
+                         effort="medium", max_tokens=32000, timeout=240, purpose="journey")
     return clean_journey(raw, course)
 
 

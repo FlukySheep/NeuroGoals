@@ -96,8 +96,10 @@ each product type, recommendation principles) that frames all products, plus the
 - **In the admin**: «✨ Составить путь» on a product's journey page drafts the bot journey from
   the knowledge base (first screen, short questionnaire, program, format, price, doubts, call to
   action). Steps are then edited by hand as before; there is no graph any more.
-- Provider: OpenAI by default (`OPENAI_API_KEY`, model `AI_MODEL`, default `gpt-5`, low reasoning
-  effort for the interview, structured JSON output). `AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`
+- Provider: OpenAI by default (`OPENAI_API_KEY`, structured JSON output). The interview uses the
+  fast `AI_CHAT_MODEL` (default `gpt-5-mini`, minimal reasoning); journey drafts use `AI_MODEL`
+  (default `gpt-5`). The bot answers at once with «💭 Думаю…» and a typing indicator, then turns that
+  message into the reply; Vercel logs show `AI interview: … took N s` and cached prompt tokens. `AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`
   switches to Claude (default `claude-opus-5-5`). One call per interview at a time, at most 5
   interviews per person per day.
   Only products visible to students (open / waitlist) are recommended.
