@@ -26,9 +26,11 @@ class Config:
     media: dict[str, str] = field(default_factory=dict)
     # Course catalog feature switch: "off" (default), "admins" (only ADMIN_IDS see it), "on".
     catalog: str = "off"
-    # AI consultant switch (AI_AGENT): "off" (default), "admins", "on". Needs ANTHROPIC_API_KEY.
+    # AI consultant switch (AI_AGENT): "off" (default), "admins", "on".
+    # Provider (AI_PROVIDER): "openai" (needs OPENAI_API_KEY) or "anthropic" (needs ANTHROPIC_API_KEY).
     ai: str = "off"
-    ai_model: str = "claude-opus-5-5"
+    ai_provider: str = "openai"
+    ai_model: str = "gpt-5"
     ai_key: bool = False
 
     def catalog_enabled_for(self, user_id: int) -> bool:
@@ -42,6 +44,18 @@ class Config:
         return f"https://t.me/{self.manager_username}"
 
 
+DEFAULT_MODELS = {"openai": "gpt-5", "anthropic": "claude-opus-5-5"}
+KEY_NAMES = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+
+
+def ai_provider() -> str:
+    """AI_PROVIDER if set; otherwise whichever key is present (OpenAI first)."""
+    provider = os.getenv("AI_PROVIDER", "").strip().lower()
+    if provider in KEY_NAMES:
+        return provider
+    return "anthropic" if os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY") else "openai"
+
+
 def load_config() -> Config:
     token = os.getenv("BOT_TOKEN", "").strip()
     if not token:
@@ -52,6 +66,7 @@ def load_config() -> Config:
     if not admin_ids and admin_chat_id and admin_chat_id > 0:
         admin_ids = {admin_chat_id}
 
+    provider = ai_provider()
     return Config(
         bot_token=token,
         admin_chat_id=admin_chat_id,
@@ -71,8 +86,9 @@ def load_config() -> Config:
         public_url=os.getenv("PUBLIC_URL", "").strip().rstrip("/"),
         catalog=os.getenv("CATALOG_ENABLED", "off").strip().lower(),
         ai=os.getenv("AI_AGENT", "off").strip().lower(),
-        ai_model=os.getenv("AI_MODEL", "").strip() or "claude-opus-5-5",
-        ai_key=bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
+        ai_provider=provider,
+        ai_model=os.getenv("AI_MODEL", "").strip() or DEFAULT_MODELS[provider],
+        ai_key=bool(os.getenv(KEY_NAMES[provider], "").strip()),
         media={
             "portrait": os.getenv("MEDIA_PORTRAIT", "media/portrait.jpg").strip(),
             "program": os.getenv("MEDIA_PROGRAM", "media/program.jpg").strip(),

@@ -31,13 +31,14 @@ def _status_block() -> str:
     state = {"off": "выключен", "admins": "включён только для администраторов", "on": "включён для всех"}
     problems = []
     if not cfg.ai_key:
-        problems.append("Нет ключа: добавьте <code>ANTHROPIC_API_KEY</code> в настройки проекта Vercel.")
+        key = "ANTHROPIC_API_KEY" if cfg.ai_provider == "anthropic" else "OPENAI_API_KEY"
+        problems.append(f"Нет ключа: добавьте <code>{key}</code> в настройки проекта Vercel.")
     if cfg.ai == "off":
         problems.append("Чтобы бот начинал с подбора, задайте <code>AI_AGENT=admins</code> (проверка) "
                         "или <code>AI_AGENT=on</code> (для всех).")
     hints = "".join(f"<p class='note' style='margin:4px 0 0'>{p}</p>" for p in problems)
     return (f'<div class="card section"><h3>Состояние</h3><p>Консультант в боте: '
-            f'<b>{state.get(cfg.ai, cfg.ai)}</b> · модель <code>{_esc(cfg.ai_model)}</code></p>{hints}</div>')
+            f'<b>{state.get(cfg.ai, cfg.ai)}</b> · {"Claude" if cfg.ai_provider == "anthropic" else "OpenAI"}, модель <code>{_esc(cfg.ai_model)}</code></p>{hints}</div>')
 
 
 async def _product_map(courses: list[dict]) -> str:

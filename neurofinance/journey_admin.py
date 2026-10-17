@@ -115,7 +115,7 @@ async def journey_page(request: Request) -> Response:
 <div><button class="btn">Скопировать путь «НейроФинансов»</button></div></form>"""
     if not _cfg().ai_key:
         ai_block = ('<div class="card section"><h3>✨ Путь с помощью ИИ</h3><p>Чтобы ИИ составлял путь по базе знаний, '
-                    'добавьте ANTHROPIC_API_KEY в настройки проекта Vercel.</p></div>')
+                    'добавьте OPENAI_API_KEY в настройки проекта Vercel.</p></div>')
     elif not (c.get("knowledge_base") or "").strip():
         ai_block = (f'<div class="card section"><h3>✨ Путь с помощью ИИ</h3><p>Сначала заполните '
                     f'<a href="/admin/courses/{cid}">базу знаний продукта</a> — ИИ строит путь по ней.</p></div>')
@@ -156,7 +156,7 @@ async def journey_ai(request: Request) -> Response:
     if c is None:
         return _redirect("/admin/courses", err="Курс не найден.")
     if not _cfg().ai_key:
-        return _redirect(here, err="ANTHROPIC_API_KEY не настроен.")
+        return _redirect(here, err="Ключ ИИ (OPENAI_API_KEY) не настроен.")
     if not (c.get("knowledge_base") or "").strip():
         return _redirect(here, err="Сначала заполните базу знаний продукта.")
     form = await request.form()

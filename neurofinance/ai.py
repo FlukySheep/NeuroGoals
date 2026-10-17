@@ -1,4 +1,4 @@
-"""AI consultant (Claude): interviews a person, recommends products, drafts course journeys.
+"""AI consultant (OpenAI or Claude, AI_PROVIDER): interviews a person, recommends products, drafts course journeys.
 
 Everything the model knows about the products comes from the admin panel:
 the ecosystem direction (kv "ai:ecosystem") and each product's knowledge base.
@@ -31,7 +31,53 @@ class AIError(Exception):
 
 async def complete(config: Config, system: str, messages: list[dict], schema: dict, *,
                    effort: str, max_tokens: int, timeout: float) -> dict:
-    """One Claude call whose answer is JSON matching `schema`."""
+    """One model call whose answer is JSON matching `schema` (effort: "low" | "medium")."""
+    if config.ai_provider == "anthropic":
+        return await _complete_claude(config, system, messages, schema, effort, max_tokens, timeout)
+    return await _complete_openai(config, system, messages, schema, effort, max_tokens, timeout)
+
+
+def _is_reasoning_model(model: str) -> bool:
+    return model.startswith(("gpt-5", "o1", "o3", "o4"))
+
+
+async def _complete_openai(config: Config, system: str, messages: list[dict], schema: dict,
+                           effort: str, max_tokens: int, timeout: float) -> dict:
+    import openai
+
+    extra = {"reasoning_effort": effort} if _is_reasoning_model(config.ai_model) else {}
+    try:
+        async with openai.AsyncOpenAI(timeout=timeout, max_retries=1) as client:
+            response = await client.chat.completions.create(
+                model=config.ai_model,
+                messages=[{"role": "system", "content": system}, *messages],
+                response_format={"type": "json_schema",
+                                 "json_schema": {"name": "reply", "strict": True, "schema": schema}},
+                max_completion_tokens=max_tokens,
+                **extra,
+            )
+    except openai.APIStatusError as exc:
+        log.error("OpenAI API error %s: %s", exc.status_code, exc.message)
+        raise AIError(f"API {exc.status_code}") from exc
+    except openai.APIConnectionError as exc:
+        log.error("OpenAI API unreachable: %s", exc)
+        raise AIError("connection") from exc
+    except openai.OpenAIError as exc:  # e.g. missing key
+        log.error("OpenAI client error: %s", exc)
+        raise AIError("client") from exc
+    choice = response.choices[0]
+    if choice.message.refusal:
+        raise AIError("refusal")
+    if choice.finish_reason == "length":
+        raise AIError("answer too long")
+    try:
+        return json.loads(choice.message.content or "")
+    except ValueError as exc:
+        raise AIError("invalid JSON") from exc
+
+
+async def _complete_claude(config: Config, system: str, messages: list[dict], schema: dict,
+                           effort: str, max_tokens: int, timeout: float) -> dict:
     import anthropic
 
     extra = {}

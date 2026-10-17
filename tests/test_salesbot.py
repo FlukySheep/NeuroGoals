@@ -111,7 +111,7 @@ def env(tmp_path, monkeypatch):
         "DATABASE_URL": _db_url(tmp_path), "MEDIA_PORTRAIT": "", "MEDIA_PROGRAM": "", "MEDIA_VIDEO_NOTE": "",
     }
     for key in ("POSTGRES_URL", "VERCEL_ENV", "VERCEL_AUTOMATION_BYPASS_SECRET", "CATALOG_ENABLED", "PUBLIC_URL", "APP_ENV",
-                "AI_AGENT", "AI_MODEL", "ANTHROPIC_API_KEY"):
+                "AI_AGENT", "AI_MODEL", "AI_PROVIDER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     for key, value in values.items():
         monkeypatch.setenv(key, value)

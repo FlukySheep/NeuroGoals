@@ -40,7 +40,7 @@ def proposal(text, *recs, summary="Хочет перестать бояться 
 @pytest.fixture
 def ha(env, monkeypatch):
     monkeypatch.setenv("AI_AGENT", "on")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     harness = Harness(env["DATABASE_URL"])
     harness.run(catalog.ensure_seeded(harness.db, harness.config))
     harness.run(harness.db.course_save("book", title="Книга о деньгах", status="open", product_type="book",
@@ -147,14 +147,14 @@ def test_busy_interview_and_daily_limit(ha, monkeypatch):
 
 
 def test_switch_and_key_required(env, monkeypatch):
-    monkeypatch.setenv("AI_AGENT", "on")  # no ANTHROPIC_API_KEY: classic flow
+    monkeypatch.setenv("AI_AGENT", "on")  # no API key: classic flow
     harness = Harness(env["DATABASE_URL"])
     try:
         harness.say(STUDENT, "/start")
         assert _cb(harness.tg.sent(42)[-1]) == ["go:step2", "go:step5", "go:choose"]
     finally:
         harness.close()
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
     monkeypatch.setenv("AI_AGENT", "admins")  # only admins get the consultant
     harness = Harness(env["DATABASE_URL"])
     try:
@@ -169,8 +169,74 @@ def test_switch_and_key_required(env, monkeypatch):
 # -- real request shape ----------------------------------------------------------------------
 
 
-def test_complete_request_and_refusal(monkeypatch, env):
+def test_openai_request_and_refusal(monkeypatch, env):
+    import asyncio
+
+    import openai
+
+    from neurofinance.config import load_config
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    seen = {}
+    reply = {"refusal": None, "finish_reason": "stop"}
+
+    class Message:
+        def __init__(self):
+            self.content = '{"kind": "question"}'
+            self.refusal = reply["refusal"]
+
+    class Choice:
+        def __init__(self):
+            self.message = Message()
+            self.finish_reason = reply["finish_reason"]
+
+    class Response:
+        choices = None
+
+    class Client:
+        def __init__(self, **kwargs):
+            seen["client"] = kwargs
+            self.chat = self
+            self.completions = self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def create(self, **kwargs):
+            seen["request"] = kwargs
+            r = Response()
+            r.choices = [Choice()]
+            return r
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", Client)
+    config = load_config()
+    assert (config.ai_provider, config.ai_model, config.ai_key) == ("openai", "gpt-5", True)
+    schema = {"type": "object"}
+    result = asyncio.run(ai.complete(config, "SYS", [{"role": "user", "content": "hi"}], schema,
+                                     effort="low", max_tokens=100, timeout=5))
+    assert result == {"kind": "question"}
+    req = seen["request"]
+    assert req["model"] == "gpt-5" and req["reasoning_effort"] == "low" and req["max_completion_tokens"] == 100
+    assert req["messages"] == [{"role": "system", "content": "SYS"}, {"role": "user", "content": "hi"}]
+    assert req["response_format"]["json_schema"] == {"name": "reply", "strict": True, "schema": schema}
+
+    monkeypatch.setenv("AI_MODEL", "gpt-4.1")  # non-reasoning models get no reasoning_effort
+    asyncio.run(ai.complete(load_config(), "S", [], schema, effort="low", max_tokens=10, timeout=5))
+    assert "reasoning_effort" not in seen["request"]
+
+    reply["refusal"] = "I can't help with that"
+    with pytest.raises(ai.AIError):
+        asyncio.run(ai.complete(config, "S", [], schema, effort="low", max_tokens=10, timeout=5))
+
+
+def test_claude_request_and_refusal(monkeypatch, env):
     import anthropic
+
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
 
     from neurofinance.config import load_config
 
@@ -251,7 +317,7 @@ def test_clean_journey_fixes_links_actions_and_html():
 
 def test_admin_knowledge_base_ecosystem_and_ai_journey(web, monkeypatch):
     monkeypatch.setenv("CATALOG_ENABLED", "on")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
     _login(web)
     from neurofinance.web import S
     page = web.get("/admin/courses").text

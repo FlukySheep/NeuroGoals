@@ -77,6 +77,8 @@ async def health(request: Request) -> JSONResponse:
         "database_host": host.split(".", 1)[0],
         "catalog_enabled": env.get("CATALOG_ENABLED", "off"),
         "ai_agent": env.get("AI_AGENT", "off"),
+        "ai_provider": env.get("AI_PROVIDER", ""),
+        "OPENAI_API_KEY": bool(env.get("OPENAI_API_KEY")),
         "ANTHROPIC_API_KEY": bool(env.get("ANTHROPIC_API_KEY")),
         "BOT_TOKEN": bool(env.get("BOT_TOKEN")),
         "WEBHOOK_SECRET": bool(env.get("WEBHOOK_SECRET")),
